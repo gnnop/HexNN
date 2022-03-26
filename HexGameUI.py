@@ -142,12 +142,12 @@ def checkGameWin(game, winArray):
     global boardSize
     global hexNeighbors
     for state in [-1, 1]:
-        for loc in winState[0][int((1+state) / 2)]:
+        for loc in winArray[0][int((1+state) / 2)]:
             for k in hexNeighbors:
                 if 0 <= loc[0] + k[0] < boardSize and 0 <= loc[1] + k[1] < boardSize:#add in something to stop checking when filled around
-                    if winState[1][loc[0] + k[0]][loc[1] + k[1]] == 0 and game[loc[0] + k[0]][loc[1] + k[1]] == state:
-                        winState[0][int((1+state) / 2)].append((loc[0] + k[0], loc[1] + k[1]))
-                        winState[1][loc[0] + k[0]][loc[1] + k[1]] = state
+                    if winArray[1][loc[0] + k[0]][loc[1] + k[1]] == 0 and game[loc[0] + k[0]][loc[1] + k[1]] == state:
+                        winArray[0][int((1+state) / 2)].append((loc[0] + k[0], loc[1] + k[1]))
+                        winArray[1][loc[0] + k[0]][loc[1] + k[1]] = state
     for i in range(boardSize):
         if winArray[1][i][boardSize-1] == 1:
             return (1, winArray)

@@ -6,15 +6,42 @@
 class hexGame():
 
     """Creates a new game of Hex"""
-    def __init__(self):
+    def __init__(self, gameSize):
         #Note that this is currently optimized for the 8 by 8 board. Very specific
-        self.redHexes = bytes([0x00 for i in range(8)])
-        self.blueHexes = bytes([0x00 for i in range(8)])
-        self.redTurn = True
+        self.gameSize = gameSize
+        self.hexes = [0 for i in range(gameSize**2)]
+        self.winState = [[[(-1, i) for i in range(gameSize)], [(i, -1) for i in range(gameSize)]], [ [0]*gameSize for i in range(gameSize)]]
+        self.posTurn = 1
+        self.hexNeighbors = [[-1, 1], [0, 1], [1, 0], [1, -1], [-1, 0], [0, -1]]
         #Red starts. Currently, we have no PI rule, I'm going to introduce that later
     
     #We check whose turn it is, and determine if they are playing on something already known.
-    #def takeTurn()
+    def hexToLine(x, y):
+      return 0
+
+    def lineToHex(i):
+      return [0, 0]
+    
+    def takeTurn(self, x, y):
+      if self.hexes[self.hexToLine[x, y]] == 0:
+        self.hexes = self.posTurn
+        self.posTurn *= -1
+
+
+    def checkGameWin(self):
+        for state in [-1, 1]:
+            for loc in self.winArray[0][int((1+state) / 2)]:
+                for k in self.hexNeighbors:
+                    if 0 <= loc[0] + k[0] < self.gameSize and 0 <= loc[1] + k[1] < self.gameSize:#add in something to stop checking when filled around
+                        if self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] == 0 and self.hexes[self.hexToLine(loc[0] + k[0],loc[1] + k[1])] == state:
+                            self.winArray[0][int((1+state) / 2)].append((loc[0] + k[0], loc[1] + k[1]))
+                            self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] = state
+        for i in range(self.gameSize):
+            if self.winArray[1][i][self.gameSize-1] == 1:
+                return 1
+            if self.winArray[1][self.gameSize - 1][i] == -1:
+                return -1
+        return 0
 
 
 
