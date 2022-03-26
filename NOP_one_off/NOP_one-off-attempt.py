@@ -9,7 +9,7 @@ class hexGame():
     def __init__(self, gameSize):
         #Note that this is currently optimized for the 8 by 8 board. Very specific
         self.gameSize = gameSize
-        self.hexes = [0 for i in range(gameSize**2)]
+        self.hexes = np.array([0 for i in range(gameSize**2)])
         self.winState = [[[(-1, i) for i in range(gameSize)], [(i, -1) for i in range(gameSize)]], [ [0]*gameSize for i in range(gameSize)]]
         self.posTurn = 1
         self.hexNeighbors = [[-1, 1], [0, 1], [1, 0], [1, -1], [-1, 0], [0, -1]]
