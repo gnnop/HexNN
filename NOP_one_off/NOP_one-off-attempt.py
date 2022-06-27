@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import tensorflow_datasets as tfds
 import random
 import pickle
 
@@ -20,30 +19,35 @@ class hexGame():
     turnPos = hexDims ** 2
 
     """Creates a new game of Hex"""
-    def __init__(self):
+    def __init__(self, hexgame=None):
         global hexDims
-        #Note that this is currently optimized for the 8 by 8 board. Very specific
-        self.gameSize = hexDims
-        self.hexes = np.array([0 for i in range(self.gameSize**2 + 1)])
-        self.hexes[self.turnPos] = 1
-        self.winState = [[[(-1, i) for i in range(self.gameSize)], [(i, -1) for i in range(self.gameSize)]], [ [0]*self.gameSize for i in range(self.gameSize)]]
-        self.hexNeighbors = [[-1, 1], [0, 1], [1, 0], [1, -1], [-1, 0], [0, -1]]
-        #Red starts. Currently, we have no PI rule, I'm going to introduce that later
 
-    """Creates a new game of Hex"""
-    def __init__(self, sequenceOfTurns):
-        global hexDims
-        #Note that this is currently optimized for the 8 by 8 board. Very specific
-        self.gameSize = hexDims
-        self.hexes = np.array([0 for i in range(self.gameSize**2 + 1)]) #The extra 1 is the person whose turn it is)
-        self.hexes[self.turnPos] = 1
-        self.winState = [[[(-1, i) for i in range(self.gameSize)], [(i, -1) for i in range(self.gameSize)]], [ [0]*self.gameSize for i in range(self.gameSize)]]
-        self.hexNeighbors = [[-1, 1], [0, 1], [1, 0], [1, -1], [-1, 0], [0, -1]]
-        #Red starts. Currently, we have no PI rule, I'm going to introduce that later
-    
+        if hexgame == None:
+          #Note that this is currently optimized for the 8 by 8 board. Very specific
+          self.gameSize = hexDims
+          self.hexes = np.array([0 for i in range(self.gameSize**2 + 1)])
+          self.hexes[self.turnPos] = 1
+          self.hexNeighbors = [[-1, 1], [0, 1], [1, 0], [1, -1], [-1, 0], [0, -1]]
+          self.winArray = [[[(-1, i) for i in range(hexDims)], [(i, -1) for i in range(hexDims)]], [ [0]*hexDims for i in range(hexDims)]]
+          #Red starts. Currently, we have no PI rule, I'm going to introduce that later
+        else:
+          self.gameSize = hexgame.gameSize
+          self.hexes = hexgame.hexes
+          self.hexNeighbors = hexgame.hexNeighbors
+          self.winArray = hexgame.winArray.copy()
+
     def takeTurn(self, x, y):
-      if self.hexes[self.hexToLine[x, y]] == 0:
-        self.hexes = self.hexes[self.turnPos]
+      if self.hexes[self.hexToLine(x, y)] == 0:
+        self.hexes[self.hexToLine(x, y)] = self.hexes[self.turnPos]
+        self.hexes[self.turnPos] *= -1
+        return True
+      else:
+        print("BAD!!!")
+        return False
+
+    def takeLinTurn(self, x):
+      if self.hexes[x] == 0:
+        self.hexes[x] = self.hexes[self.turnPos]
         self.hexes[self.turnPos] *= -1
         return True
       else:
@@ -99,12 +103,10 @@ def net_fn(batch: Batch) -> jnp.ndarray:
       hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
       hk.Linear(100), jax.nn.relu,
-      hk.Linear(hexDims*hexDims),
+      hk.Linear(20), jax.nn.relu,
+      hk.Linear(1)
   ])
-
-
   #convolutional network
   #this code convolces everything a couple of times
   """
@@ -139,32 +141,44 @@ def main(_):
 
     ii = 0
 
-    while hexgame.checkGameWin() != 0:
+    while hexgame.checkGameWin() == 0:
 
       boards["data"].append(hexgame.hexes)
 
       alphaBetaBoards = []
 
+      foundGameWin = False
+
       for i in range(hexDims**2):
-        if hexgame.hexes[i] == 0:
+        if hexgame.hexes[i] == 0 and not foundGameWin:
           hexgame.hexes[i] = hexgame.getHexTurn()
+          if hexgame.getHexTurn() == hexGame(hexgame).checkGameWin() == 1:
+            foundGameWin = True
+            boards["label"].append(1)
+          elif hexgame.getHexTurn() == hexGame(hexgame).checkGameWin() == -1:
+            foundGameWin = True
+            boards["label"].append(-1)
+
           alphaBetaBoards.append(hexgame.hexes)
           hexgame.hexes[i] = 0
       #alpha beta value - the nn returns 
 
       #Now serialize the boards and apply everything:
-      ls = net.apply(params, alphaBetaBoards)
-      if hexgame.getHexTurn() == 1: #simple alpha beta
-        boards["label"].append(max(ls))
-      else:
-        boards["label"].append(min(ls))
+      if not foundGameWin:
+        ls = net.apply(params, alphaBetaBoards)
+        if hexgame.getHexTurn() == 1: #simple alpha beta
+          boards["label"].append(max(ls))
+        else:
+          boards["label"].append(min(ls))
 
       #Use some mix of exploration and the network
       if random.random() < 0.3:
         hexgame.takeTurn(random.randint(0, hexDims - 1), random.randint(0, hexDims - 1))
       else:
-        hexgame.takeTurn(boards["label"][-1])
+        hexgame.takeLinTurn(boards["label"][-1])
       
+    boards["label"] = jnp.array(boards["label"])
+    boards["data"] = jnp.array(boards["data"])
     return boards
 
   # Training loss (cross-entropy).
@@ -183,7 +197,7 @@ def main(_):
   @jax.jit
   def accuracy(params: hk.Params, batch: Batch) -> jnp.ndarray:
     predictions = net.apply(params, batch)
-    return jnp.mean(predictions == batch["label"])
+    return jnp.sum(jnp.square(predictions - batch["label"])) / predictions.size
 
   @jax.jit
   def update(
@@ -193,7 +207,7 @@ def main(_):
   ) -> Tuple[hk.Params, optax.OptState]:
     """Learning rule (stochastic gradient descent)."""
     grads = jax.grad(loss)(params, batch)
-    updates, opt_state = optax.update(grads, opt_state)
+    updates, opt_state = opt.update(grads, opt_state)
     new_params = optax.apply_updates(params, updates)
     return new_params, opt_state
 
@@ -204,14 +218,15 @@ def main(_):
     return optax.incremental_update(params, avg_params, step_size=0.001)
 
   # Initialize network and optimiser; note we draw an input to get shapes.
-  params = avg_params = net.init(jax.random.PRNGKey(42), hexGame().hexes)
+  params = avg_params = net.init(jax.random.PRNGKey(42), {"data" : jnp.array([hexGame().hexes]), "label" : jnp.array([0.0])})
   opt_state = opt.init(params)
 
   # Train/eval loop.
   for step in range(100001):
     if step % 1000 == 0:
       # Periodically evaluate classification accuracy on train & test sets.
-      train_accuracy = accuracy(avg_params, generateGameBatch(hexGame(), avg_params))
+      games = generateGameBatch(hexGame(), avg_params)
+      train_accuracy = accuracy(avg_params, games)
       train_accuracy = jax.device_get(train_accuracy)
       print(f"[Step {step}] Game accuracy, may be inaccurate: "
             f"{train_accuracy:.3f}.")
