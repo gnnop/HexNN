@@ -24,6 +24,7 @@ class hexGame():
 
         if hexgame == None:
           #Note that this is currently optimized for the 8 by 8 board. Very specific
+          self.won = 0
           self.gameSize = hexDims
           self.hexes = np.array([0 for i in range(self.gameSize**2 + 1)])
           self.hexes[self.turnPos] = 1
@@ -31,6 +32,7 @@ class hexGame():
           self.winArray = [[[(-1, i) for i in range(hexDims)], [(i, -1) for i in range(hexDims)]], [ [0]*hexDims for i in range(hexDims)]]
           #Red starts. Currently, we have no PI rule, I'm going to introduce that later
         else:
+          self.won = hexgame.won
           self.gameSize = hexgame.gameSize
           self.hexes = hexgame.hexes
           self.hexNeighbors = hexgame.hexNeighbors
@@ -61,19 +63,24 @@ class hexGame():
       return self.gameSize * x + y
 
     def checkGameWin(self):
+      if self.won == 0:
         for state in [-1, 1]:
-            for loc in self.winArray[0][int((1+state) / 2)]:
-                for k in self.hexNeighbors:
-                    if 0 <= loc[0] + k[0] < self.gameSize and 0 <= loc[1] + k[1] < self.gameSize:#add in something to stop checking when filled around
-                        if self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] == 0 and self.hexes[self.hexToLine(loc[0] + k[0],loc[1] + k[1])] == state:
-                            self.winArray[0][int((1+state) / 2)].append((loc[0] + k[0], loc[1] + k[1]))
-                            self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] = state
+          for loc in self.winArray[0][int((1+state) / 2)]:
+            for k in self.hexNeighbors:
+              if 0 <= loc[0] + k[0] < self.gameSize and 0 <= loc[1] + k[1] < self.gameSize:#add in something to stop checking when filled around
+                if self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] == 0 and self.hexes[self.hexToLine(loc[0] + k[0],loc[1] + k[1])] == state:
+                  self.winArray[0][int((1+state) / 2)].append((loc[0] + k[0], loc[1] + k[1]))
+                  self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] = state
         for i in range(self.gameSize):
-            if self.winArray[1][i][self.gameSize-1] == 1:
-                return 1
-            if self.winArray[1][self.gameSize - 1][i] == -1:
-                return -1
+          if self.winArray[1][i][self.gameSize-1] == 1:
+            self.won = 1
+            return 1
+          if self.winArray[1][self.gameSize - 1][i] == -1:
+            self.won = -1
+            return -1
         return 0
+      else:
+        return self.won
 
 
 Batch = Mapping[str, np.ndarray]
@@ -87,14 +94,13 @@ Batch = Mapping[str, np.ndarray]
 
 def net_fn(batch: Batch) -> jnp.ndarray:
   """Standard LeNet-300-100 MLP network."""
-  x = batch["data"].astype(jnp.float32)
+  x = batch.astype(jnp.float32)
 
   #sequential unit
   #this code is the initial processing
   mlp = hk.Sequential([
       hk.Flatten(),
       hk.Linear(100), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
@@ -134,6 +140,53 @@ def main(_):
 
   #I believe what I'll do for now is to evaluate an entire game tree and look at all states along that tree.
 
+  def compareAI(aiOne, aiTwo):
+    aiOneScore = 0
+    aiTwoScore = 0
+    print("evaluating AIs")
+    for i in range(100):
+      hexgame = hexGame()
+      if i % 2 == 0:
+        firstPlayer = aiOne
+        negOnePlayer = aiTwo
+      else:
+        firstPlayer = aiTwo
+        negOnePlayer = aiOne
+      
+      while hexgame.checkGameWin() == 0:
+        boards = []
+        gamestates = []
+        for i in range(hexDims**2):
+          if hexgame.hexes[i] == 0:
+            gamestates.append(i)
+            hexgame.hexes[i] = hexgame.getHexTurn()
+            boards.append(hexgame.hexes.copy())
+            hexgame.hexes[i] = 0
+          
+        if hexgame.getHexTurn() == 1:
+          preds = net.apply(firstPlayer, jnp.array(boards))
+          val = jnp.max(preds)
+        else:
+          preds = net.apply(negOnePlayer, jnp.array(boards))
+          val = jnp.min(preds)
+        
+        hexgame.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
+      
+      if i % 2 == 0:
+        if hexgame.checkGameWin() == 1:
+          aiOneScore += 1
+        else:
+          aiTwoScore += 1
+      else:
+        if hexgame.checkGameWin() == 1:
+          aiTwoScore += 1
+        else:
+          aiOneScore += 1
+
+    return (aiOneScore, aiTwoScore)
+          
+
+
   def generateGameBatch(hexgame,params):
     global hexDims
 
@@ -149,17 +202,22 @@ def main(_):
 
       foundGameWin = False
 
+      gameStates = []
+
       for i in range(hexDims**2):
         if hexgame.hexes[i] == 0 and not foundGameWin:
+          gameStates.append(i)
           hexgame.hexes[i] = hexgame.getHexTurn()
           if hexgame.getHexTurn() == hexGame(hexgame).checkGameWin() == 1:
             foundGameWin = True
             boards["label"].append(1)
+            boards.append(hexgame.hexes.copy())
           elif hexgame.getHexTurn() == hexGame(hexgame).checkGameWin() == -1:
             foundGameWin = True
             boards["label"].append(-1)
+            boards.append(hexgame.hexes.copy())
 
-          alphaBetaBoards.append(hexgame.hexes)
+          alphaBetaBoards.append(hexgame.hexes.copy())
           hexgame.hexes[i] = 0
       #alpha beta value - the nn returns 
 
@@ -167,25 +225,24 @@ def main(_):
       if not foundGameWin:
         ls = net.apply(params, alphaBetaBoards)
         if hexgame.getHexTurn() == 1: #simple alpha beta
-          boards["label"].append(max(ls))
+          boards["label"].append(jnp.max(ls))
         else:
-          boards["label"].append(min(ls))
+          boards["label"].append(jnp.min(ls))
 
-      #Use some mix of exploration and the network
-      if random.random() < 0.3:
-        hexgame.takeTurn(random.randint(0, hexDims - 1), random.randint(0, hexDims - 1))
-      else:
-        hexgame.takeLinTurn(boards["label"][-1])
+        #Use some mix of exploration and the network
+        if random.random() < 0.3:
+          hexgame.takeTurn(random.randint(0, hexDims - 1), random.randint(0, hexDims - 1))
+        elif foundGameWin:
+          boards["data"].append()
+          hexgame.takeLinTurn(gameStates[np.where(ls == boards["label"][-1])[0][0]])
       
-    boards["label"] = jnp.array(boards["label"])
-    boards["data"] = jnp.array(boards["data"])
     return boards
 
   # Training loss (cross-entropy).
   def loss(params: hk.Params, batch: Batch) -> jnp.ndarray:
     """Compute the loss of the network, including L2."""
-    logits = net.apply(params, batch)
-    labels = batch["label"]
+    logits = net.apply(params, jnp.arrat(batch["data"]))
+    labels = jnp.array(batch["label"])
 
     l2_loss = 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_leaves(params))
     softmax_xent = -jnp.sum(labels * jax.nn.log_softmax(logits))
@@ -193,11 +250,6 @@ def main(_):
 
     return softmax_xent + 1e-4 * l2_loss
 
-  # Evaluation metric (classification accuracy).
-  @jax.jit
-  def accuracy(params: hk.Params, batch: Batch) -> jnp.ndarray:
-    predictions = net.apply(params, batch)
-    return jnp.sum(jnp.square(predictions - batch["label"])) / predictions.size
 
   @jax.jit
   def update(
@@ -218,25 +270,24 @@ def main(_):
     return optax.incremental_update(params, avg_params, step_size=0.001)
 
   # Initialize network and optimiser; note we draw an input to get shapes.
-  params = avg_params = net.init(jax.random.PRNGKey(42), {"data" : jnp.array([hexGame().hexes]), "label" : jnp.array([0.0])})
+  params = net.init(jax.random.PRNGKey(42), jnp.array([hexGame().hexes]))
   opt_state = opt.init(params)
+
+  grabAI = params
 
   # Train/eval loop.
   for step in range(100001):
     if step % 1000 == 0:
       # Periodically evaluate classification accuracy on train & test sets.
-      games = generateGameBatch(hexGame(), avg_params)
-      train_accuracy = accuracy(avg_params, games)
-      train_accuracy = jax.device_get(train_accuracy)
-      print(f"[Step {step}] Game accuracy, may be inaccurate: "
-            f"{train_accuracy:.3f}.")
+      oldScore, newScore = compareAI(grabAI, params)
+      print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
+      grabAI = params
 
     # Do SGD on a batch of training examples.
     params, opt_state = update(params, opt_state, generateGameBatch(hexGame(), params))
-    avg_params = ema_update(params, avg_params)
 
   file = open('trained-model.params', 'wb')
-  pickle.dump(avg_params, file)
+  pickle.dump(params, file)
   file.close()
   print("Bye")
   exit()
