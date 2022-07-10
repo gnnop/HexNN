@@ -18,7 +18,7 @@ class HexGame:
     The game state is stored in two rectangular arrays.
     This makes checking for wins easy.
     '''
-    self.game_state = np.ones([2, self.size, self.size])
+    self.game_state: np.array = np.ones([2, self.size, self.size])
 
   def place_blue_piece(self, x, y):
     '''
@@ -50,6 +50,15 @@ class HexGame:
         tempState[i][j]           *= (tempState[i-1][j] + tempState[i-1][j+1])
         tempState[i][self.size-1] *= tempState[i-1][self.size-1]
     return np.sum(tempState[self.size-1])
+
+
+  def swap(self):
+    '''
+    Makes the red pieces blue and the blue pieces red.
+    Also rotates the game board 180 degrees
+    Used for the swap rule
+    '''
+    self.game_state[0], self.game_state[1] = self.game_state[1], self.game_state[0]
 
 ################################## Mundy-Game Mechanics ###################################
 
