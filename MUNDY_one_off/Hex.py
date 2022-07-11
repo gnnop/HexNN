@@ -55,7 +55,6 @@ class HexGame:
   def swap(self):
     '''
     Makes the red pieces blue and the blue pieces red.
-    Also rotates the game board 180 degrees
     Used for the swap rule
     '''
     self.game_state[0], self.game_state[1] = self.game_state[1], self.game_state[0]
