@@ -45,7 +45,6 @@ class hexGame():
         self.hexes[self.turnPos] *= -1
         return True
       else:
-        print("BAD!!!")
         return False
 
     def takeLinTurn(self, x):
@@ -196,7 +195,6 @@ def main(_):
     ii = 0
 
     while hexgame.checkGameWin() == 0:
-      print("OI")
 
       boards["data"].append(hexgame.hexes)
 
@@ -223,9 +221,6 @@ def main(_):
             boards["data"].append(hexgame_.hexes.copy())
 
           alphaBetaBoards.append(hexgame_.hexes.copy())
-      
-      print("HERE")
-      print(hexgame.checkGameWin())
       #alpha beta value - the nn returns 
 
       #Now serialize the boards and apply everything:
