@@ -9,6 +9,7 @@ import numpy as np
 import optax
 import random
 import pickle
+import copy
 
 #First I'm going to start with an 8 by 8 board:
 
@@ -195,6 +196,7 @@ def main(_):
     ii = 0
 
     while hexgame.checkGameWin() == 0:
+      print("OI")
 
       boards["data"].append(hexgame.hexes)
 
@@ -205,25 +207,30 @@ def main(_):
       gameStates = []
 
       for i in range(hexDims**2):
-        if hexgame.hexes[i] == 0 and not foundGameWin:
+        hexgame_ = copy.deepcopy(hexgame)
+
+        if hexgame_.hexes[i] == 0 and not foundGameWin:
           gameStates.append(i)
-          hexgame.hexes[i] = hexgame.getHexTurn()
-          if hexgame.getHexTurn() == hexGame(hexgame).checkGameWin() == 1:
+          hexgame_.hexes[i] = hexgame_.getHexTurn()
+          game_cond = hexgame_.checkGameWin()
+          if hexgame_.getHexTurn() == game_cond == 1:
             foundGameWin = True
             boards["label"].append(1)
-            boards.append(hexgame.hexes.copy())
-          elif hexgame.getHexTurn() == hexGame(hexgame).checkGameWin() == -1:
+            boards["data"].append(hexgame_.hexes.copy())
+          elif hexgame_.getHexTurn() == game_cond == -1:
             foundGameWin = True
             boards["label"].append(-1)
-            boards.append(hexgame.hexes.copy())
+            boards["data"].append(hexgame_.hexes.copy())
 
-          alphaBetaBoards.append(hexgame.hexes.copy())
-          hexgame.hexes[i] = 0
+          alphaBetaBoards.append(hexgame_.hexes.copy())
+      
+      print("HERE")
+      print(hexgame.checkGameWin())
       #alpha beta value - the nn returns 
 
       #Now serialize the boards and apply everything:
       if not foundGameWin:
-        ls = net.apply(params, alphaBetaBoards)
+        ls = net.apply(params, np.array(alphaBetaBoards))
         if hexgame.getHexTurn() == 1: #simple alpha beta
           boards["label"].append(jnp.max(ls))
         else:
@@ -241,7 +248,7 @@ def main(_):
   # Training loss (cross-entropy).
   def loss(params: hk.Params, batch: Batch) -> jnp.ndarray:
     """Compute the loss of the network, including L2."""
-    logits = net.apply(params, jnp.arrat(batch["data"]))
+    logits = net.apply(params, jnp.array(batch["data"]))
     labels = jnp.array(batch["label"])
 
     l2_loss = 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_leaves(params))
@@ -277,12 +284,13 @@ def main(_):
 
   # Train/eval loop.
   for step in range(100001):
-    if step % 1000 == 0:
+    if step % 1000 == 50:
       # Periodically evaluate classification accuracy on train & test sets.
       oldScore, newScore = compareAI(grabAI, params)
       print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
       grabAI = params
 
+    print(step)
     # Do SGD on a batch of training examples.
     params, opt_state = update(params, opt_state, generateGameBatch(hexGame(), params))
 
