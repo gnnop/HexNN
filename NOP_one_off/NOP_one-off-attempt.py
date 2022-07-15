@@ -233,10 +233,24 @@ def main(_):
 
         #Use some mix of exploration and the network
         if random.random() < 0.3:
-          hexgame.takeTurn(random.randint(0, hexDims - 1), random.randint(0, hexDims - 1))
-        elif foundGameWin:
-          boards["data"].append()
+          num = 0
+          for i in hexgame.hexes:
+            if i == 0:
+              num+=1
+          pos = random.randrange(0, num)
+          num = 0
+          absPos = 0
+          for i in hexgame.hexes:
+            if i == 0:
+              if pos == num:
+                hexgame.takeLinTurn(absPos)
+              num+=1
+            absPos+=1
+        else:
+          boards["data"].append(copy.deepcopy(hexgame.hexes))
           hexgame.takeLinTurn(gameStates[np.where(ls == boards["label"][-1])[0][0]])
+      else:
+        break
       
     return boards
 
@@ -279,13 +293,14 @@ def main(_):
 
   # Train/eval loop.
   for step in range(100001):
+    if step % 100:
+      print(step)
     if step % 1000 == 50:
       # Periodically evaluate classification accuracy on train & test sets.
       oldScore, newScore = compareAI(grabAI, params)
       print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
-      grabAI = params
+      grabAI = copy.deepcopy(params)
 
-    print(step)
     # Do SGD on a batch of training examples.
     params, opt_state = update(params, opt_state, generateGameBatch(hexGame(), params))
 
