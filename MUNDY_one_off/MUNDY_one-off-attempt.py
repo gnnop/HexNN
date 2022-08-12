@@ -51,24 +51,27 @@ def swap(game_state: jnp.ndarray):
 
 def print_game_state(game_state: jnp.ndarray):
   size = game_state.shape[1]
+  # top red bar
   print(colorama.Fore.RED + '-'*(size*2+1) + colorama.Fore.RESET)
   for i in range(size):
+    # spacing to line up rows hexagonally
     print(' '*i, end='')
+    # left blue bar
     print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET, end='')
+    # print a row of the game state
     for j in range(size):
       character = '.'
       if game_state[0][i][j]==0:
         character = colorama.Fore.BLUE+'B'+colorama.Fore.RESET
       elif game_state[1][j][i]==0:
         character = colorama.Fore.RED+'R'+colorama.Fore.RESET
-
       print(character, end=' ')
-    print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET, end='')
-
-    print()
+    # right blue bar and end of row
+    print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET)
+  # bottom red bar
   print(' '*i, end=' ')
   print(colorama.Fore.RED + '-'*(size*2+1) + colorama.Fore.RESET)
-
+# end print_game_state 
 
 ################################## END Game Mechanics ###################################
 
@@ -154,6 +157,7 @@ def main(_):
     index = predicted_probabilities.argmax()
     index_unraveled = np.unravel_index(index, predicted_probabilities.shape)
     return index_unraveled
+  # end estimate_best_move
 
   # Try it out with a new game and random network parameters
   my_board_state = new_game_state(board_size)
@@ -187,7 +191,9 @@ def main(_):
     else:
       next_board_state = place_red_piece(next_board_state, current_best_move[0], current_best_move[1])
     return next_board_state
+  # end make_best_move
 
+  # Try it out by playing a test game
   my_board_turn_color = 0
   keep_going = True
   my_turn_count = 0
