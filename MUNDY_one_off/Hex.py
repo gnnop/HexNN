@@ -1,5 +1,6 @@
 from unicodedata import numeric
 import numpy as np
+from scipy import signal
 import enum
 import math
 
@@ -18,7 +19,7 @@ class HexGame:
     The game state is stored in two rectangular arrays.
     This makes checking for wins easy.
     '''
-    self.game_state: np.array = np.ones([2, self.size, self.size])
+    self.game_state: np.array = np.ones([2, self.size, self.size], dtype=np.int8)
 
   def place_blue_piece(self, x, y):
     '''
@@ -44,11 +45,46 @@ class HexGame:
     Returns 0 if the color 'color' won
     Returns a natural number otherwise
     '''
-    tempState = self.game_state[color].copy()
-    for i in range(1, self.size):
-      for j in range(self.size-1):
-        tempState[i][j]           *= (tempState[i-1][j] + tempState[i-1][j+1])
-        tempState[i][self.size-1] *= tempState[i-1][self.size-1]
+
+    '''
+    I like to pretend:
+    * We're looking down at a dish,
+    * We're pouring juice through the top of the dish
+    * The hex tiles are thick walls
+
+    tempState will eventually describe where the juice can flow.
+    '''
+
+    # Initialize tempState. No juice anywhere
+    tempState = np.zeros((self.size, self.size))
+    # Spill juice all over the top of the board
+    tempState[0][:] = self.game_state[color][0][:]
+
+    '''
+    For use with the convolution a few lines below this.
+    Describes which hexagonal cells are adjacent when described
+    as a square matrix
+    '''
+    kernel = [
+      [0, 1, 1],
+      [1, 1, 1],
+      [1, 1, 0]
+    ]
+
+    # Spread the juice 
+    for i in range(self.size**2):
+      tempState = signal.convolve2d(tempState, kernel, mode='same')
+      tempState = np.minimum(tempState, 1)
+      tempState = np.multiply(tempState, self.game_state[color])
+
+    '''
+    At this point, tempState is the presence of the juice after it flows
+    everywhere it can.
+
+    A winning move seals the dish, so juice can't get to the other side
+    '''
+    
+    # Check for juice at the other end of the dish
     return np.sum(tempState[self.size-1])
 
 

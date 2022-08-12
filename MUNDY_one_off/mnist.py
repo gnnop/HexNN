@@ -20,6 +20,10 @@ from absl import app
 import haiku as hk
 import jax
 import jax.numpy as jnp
+
+
+jax.config.update('jax_platform_name', 'cpu')
+
 import numpy as np
 import optax
 import tensorflow_datasets as tfds
@@ -51,6 +55,37 @@ def load_dataset(
     ds = ds.shuffle(10 * batch_size, seed=0)
   ds = ds.batch(batch_size)
   return iter(tfds.as_numpy(ds))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def main(_):
@@ -93,6 +128,8 @@ def main(_):
   @jax.jit
   def ema_update(params, avg_params):
     return optax.incremental_update(params, avg_params, step_size=0.001)
+
+
 
   # Make datasets.
   train = load_dataset("train", is_training=True, batch_size=1000)
