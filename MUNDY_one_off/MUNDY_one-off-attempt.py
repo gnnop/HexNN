@@ -8,6 +8,7 @@ from jax.scipy import signal
 import numpy as np
 import optax
 import colorama
+import time
 
 
 
@@ -156,7 +157,7 @@ def main(_):
 
   # Try it out with a new game and random network parameters
   my_board_state = new_game_state(board_size)
-  network_parameters = net.init(jax.random.PRNGKey(314), my_board_state)
+  network_parameters = net.init(jax.random.PRNGKey(time.time()), my_board_state)
   print(estimate_best_move(network_parameters, my_board_state, 0))
 
 
