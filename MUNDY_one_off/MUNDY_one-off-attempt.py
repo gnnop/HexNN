@@ -8,81 +8,32 @@ from jax.scipy import signal
 import numpy as np
 import optax
 import colorama
-import time
+from time import time
 
 
 
 jax.config.update('jax_platform_name', 'cpu')
 
 
-################################## Game Mechanics ###################################
-def new_game_state(size: np.unsignedinteger) -> jnp.array:
-  game_state: jnp.ndarray = jnp.ones([2, size, size])
-  return game_state
-
-def place_blue_piece(game_state: jnp.ndarray, x: np.unsignedinteger, y: np.unsignedinteger):
-  return game_state.at[0,y,x].set(0)
-
-def place_red_piece(game_state: jnp.ndarray, x: np.unsignedinteger, y: np.unsignedinteger):
-  return game_state.at[1,x,y].set(0)
-
-def check_free(game_state: jnp.ndarray, x: np.unsignedinteger, y: np.unsignedinteger):
-  return game_state[0][y][x] * game_state[1][x][y]
-
-def check_win(game_state: jnp.ndarray, color: np.unsignedinteger) -> bool:
-  size = game_state.shape[1]
-  tempState = jnp.zeros(game_state[color].shape)
-  tempState = tempState.at[0].set(game_state[color][0])
-  kernel = jnp.array([
-    [0, 1, 1],
-    [1, 1, 1],
-    [1, 1, 0]
-  ])
-  for i in range(size**2):
-    tempState = signal.convolve2d(tempState, kernel, mode='same')
-    tempState = jnp.minimum(tempState, 1)
-    tempState = jnp.multiply(tempState, game_state[color])
-  return jnp.sum(tempState[size-1]) == 0
-
-def swap(game_state: jnp.ndarray):
-  t = game_state[1]
-  game_state.at[1].set(game_state[0])
-  game_state.at[0].set(t)
-
-def print_game_state(game_state: jnp.ndarray):
-  size = game_state.shape[1]
-  # top red bar
-  print(colorama.Fore.RED + '-'*(size*2+1) + colorama.Fore.RESET)
-  for i in range(size):
-    # spacing to line up rows hexagonally
-    print(' '*i, end='')
-    # left blue bar
-    print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET, end='')
-    # print a row of the game state
-    for j in range(size):
-      character = '.'
-      if game_state[0][i][j]==0:
-        character = colorama.Fore.BLUE+'B'+colorama.Fore.RESET
-      elif game_state[1][j][i]==0:
-        character = colorama.Fore.RED+'R'+colorama.Fore.RESET
-      print(character, end=' ')
-    # right blue bar and end of row
-    print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET)
-  # bottom red bar
-  print(' '*i, end=' ')
-  print(colorama.Fore.RED + '-'*(size*2+1) + colorama.Fore.RESET)
-# end print_game_state 
-
-################################## END Game Mechanics ###################################
 
 
-
+def timer_func(func):
+    # This function shows the execution time of 
+    # the function object passed
+    def wrap_func(*args, **kwargs):
+        t1 = time()
+        result = func(*args, **kwargs)
+        t2 = time()
+        print(f'Function {func.__name__!r} executed in {(t2-t1):.4f}s')
+        return result
+    return wrap_func
 
 
 
 
 ###################################### AI Model #########################################
 def net_fn(game_state: jnp.ndarray):
+  x = game_state.astype(jnp.float32)
   size = game_state.shape[1]
   num_spots = size*size
   mlp = hk.Sequential([
@@ -92,7 +43,7 @@ def net_fn(game_state: jnp.ndarray):
       hk.Linear(num_spots),
       hk.Reshape((size,size))
   ])
-  return mlp(game_state)
+  return mlp(x)
 
 
 
@@ -113,12 +64,85 @@ def load_dataset(batch_size: int):
 
 
 def main(_):
+
+
+
+  # Game config
+  board_size = 9
+
+  ################################## Game Mechanics ###################################
+  def new_game_state() -> jnp.array:
+    game_state: jnp.ndarray = jnp.ones([2, board_size, board_size], dtype=jnp.uint8)
+    return game_state
+
+  def place_blue_piece(game_state: jnp.ndarray, x: jnp.unsignedinteger, y: jnp.unsignedinteger):
+    return game_state.at[0,y,x].set(0)
+
+  def place_red_piece(game_state: jnp.ndarray, x: jnp.unsignedinteger, y: jnp.unsignedinteger):
+    return game_state.at[1,x,y].set(0)
+
+  def check_free(game_state: jnp.ndarray, x: jnp.unsignedinteger, y: jnp.unsignedinteger):
+    return game_state[0][y][x] * game_state[1][x][y]
+
+  def free_cells(game_state: jnp.ndarray):
+    return jnp.multiply(game_state[0], jnp.transpose(game_state[1]))
+
+  @jax.jit
+  def check_win(game_state: jnp.ndarray, color: jnp.unsignedinteger) -> bool:
+    x = jnp.where(color, game_state[1][0], game_state[0][0])
+    x = x.astype(jnp.float32)
+    tempState = jnp.zeros((board_size, board_size), dtype=jnp.float32)
+    tempState = tempState.at[0].set(x)
+    kernel = jnp.array([
+      [0, 1, 1],
+      [1, 1, 1],
+      [1, 1, 0]
+    ])
+    for i in range(int(board_size*board_size/2)):
+      tempState = signal.convolve2d(tempState, kernel, mode='same')
+      tempState = jnp.minimum(tempState, 1)
+      tempState = jnp.multiply(tempState, jnp.where(color, game_state[1], game_state[0]))
+    return jnp.sum(tempState[board_size-1]) == 0
+
+  def swap(game_state: jnp.ndarray):
+    t = game_state[1]
+    game_state = game_state.at[1].set(game_state[0])
+    game_state = game_state.at[0].set(t)
+
+  def print_game_state(game_state: jnp.ndarray):
+    # top red bar
+    print(colorama.Fore.RED + '-'*(board_size*2+1) + colorama.Fore.RESET)
+    for i in range(board_size):
+      # spacing to line up rows hexagonally
+      print(' '*i, end='')
+      # left blue bar
+      print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET, end='')
+      # print a row of the game state
+      for j in range(board_size):
+        character = '.'
+        if game_state[0][i][j]==0:
+          character = colorama.Fore.BLUE+'B'+colorama.Fore.RESET
+        elif game_state[1][j][i]==0:
+          character = colorama.Fore.RED+'R'+colorama.Fore.RESET
+        print(character, end=' ')
+      # right blue bar and end of row
+      print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET)
+    # bottom red bar
+    print(' '*i, end=' ')
+    print(colorama.Fore.RED + '-'*(board_size*2+1) + colorama.Fore.RESET)
+  # end print_game_state 
+
+  ################################## END Game Mechanics ###################################
+
+
+
+
+
+
+
   # Make the network and optimiser.
   net = hk.without_apply_rng(hk.transform(net_fn))
   opt = optax.adam(1e-3)
-
-  # Game config
-  board_size = 11
 
 
   # Colorama for code coloring
@@ -127,14 +151,11 @@ def main(_):
 
 
 
-
-
-
   def estimate_best_move(
     network_parameters: hk.Params, 
     current_board_state: jnp.ndarray,
     current_turn_color: jnp.unsignedinteger
-  ):
+  ) -> Tuple:
     '''
     Finds what the AI thinks the probabilities of players winning are
     0 -> Red wins
@@ -143,26 +164,25 @@ def main(_):
     predicted_probabilities = net.apply(network_parameters, current_board_state)
     predicted_probabilities = predicted_probabilities[0]
     # If red is playing, subtract from one so we're always trying to maximize the score
-    if current_turn_color != 0:
-      predicted_probabilities = jnp.subtract(1, predicted_probabilities)
+    predicted_probabilities = jnp.where(
+      current_turn_color, 
+      jnp.subtract(1, predicted_probabilities),
+      predicted_probabilities
+      )
     
     # Filter out illegal moves
-    size = current_board_state.shape[1]
-    for x in range(size):
-      for y in range(size):
-        if check_free(current_board_state, x, y) == 0:
-          predicted_probabilities = predicted_probabilities.at[x,y].set(0)
+    predicted_probabilities = jnp.multiply(free_cells(current_board_state).astype(jnp.float32).transpose(), predicted_probabilities)
     
     # Without any illegal move, now try to find the most ideal one
     index = predicted_probabilities.argmax()
-    index_unraveled = np.unravel_index(index, predicted_probabilities.shape)
+    index_unraveled = jnp.unravel_index(index, predicted_probabilities.shape)
     return index_unraveled
   # end estimate_best_move
 
   # Try it out with a new game and random network parameters
-  my_board_state = new_game_state(board_size)
-  network_parameters = net.init(jax.random.PRNGKey(int(time.time())), my_board_state)
-  print(estimate_best_move(network_parameters, my_board_state, 0))
+  b = new_game_state()
+  network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
+  print(estimate_best_move(network_parameters, b, 0))
 
 
 
@@ -170,54 +190,115 @@ def main(_):
 
 
 
-
-
+  @jax.jit
   def make_best_move(
-    network_parameters: hk.Params, 
+    current_network_parameters: hk.Params, 
     current_board_state: jnp.ndarray, 
     current_turn_color: jnp.unsignedinteger
-  ):
+  ) -> jnp.ndarray:
     '''
     Uses best_move to determine the best move for a certain color.
     Makes that move and returns the new game state.
     '''
     # Estimate the best move
-    current_best_move = estimate_best_move(network_parameters, current_board_state, current_turn_color)
+    current_best_move = estimate_best_move(current_network_parameters, current_board_state, current_turn_color)
 
     # Make that move
-    next_board_state = current_board_state
-    if current_turn_color == 0:
-      next_board_state = place_blue_piece(next_board_state, current_best_move[0], current_best_move[1])
-    else:
-      next_board_state = place_red_piece(next_board_state, current_best_move[0], current_best_move[1])
+    next_board_state = jnp.where(
+      current_turn_color, 
+      place_red_piece(current_board_state, current_best_move[0], current_best_move[1]), 
+      place_blue_piece(current_board_state, current_best_move[0], current_best_move[1])
+    )
+
     return next_board_state
   # end make_best_move
 
   # Try it out by playing a test game
-  my_board_turn_color = 0
-  keep_going = True
-  my_turn_count = 0
-  while(keep_going):
-    my_turn_count += 1
+  @timer_func
+  def play_a_game(
+    current_network_parameters: hk.Params
+  ):
+    current_board_state = new_game_state()
+    current_board_turn_color = 0
+    keep_going = True
+    current_turn_count = 0
+    while(keep_going):
+      current_turn_count += 1
 
-    # Make the best move
-    my_board_state = make_best_move(network_parameters, my_board_state, my_board_turn_color)
+      # Make the best move
+      current_board_state = make_best_move(current_network_parameters, current_board_state, current_board_turn_color)
 
-    # Print the results
-    print("-------------- Turn %d --------------" % (my_turn_count))
-    print_game_state(my_board_state)
-    print()
+      # Check for a win
+      keep_going = not check_win(current_board_state, current_board_turn_color)
 
-    # Check for a win
-    if my_board_turn_color == 0 and check_win(my_board_state, 0):
-      print("Blue wins!")
-      keep_going = False
-    elif my_board_turn_color == 1 and check_win(my_board_state, 1):
-      print("Red wins!")
-      keep_going = False
+      # If not a win, let the next player take a turn
+      current_board_turn_color = not current_board_turn_color
+    # end while loop
+    return (current_board_turn_color, current_turn_count, current_board_state)
+  # end play_a_game
 
-    # If not a win, let the next player take a turn
-    my_board_turn_color = not my_board_turn_color
+
+
+  # while True:
+  #   network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
+  #   final_board_turn_color, final_turn_count, final_board_state = play_a_game(network_parameters)
+  #   # Check for a win
+  #   if final_board_turn_color:
+  #     print("Blue wins!")
+  #   else:
+  #     print("Red wins!")
+      
+  # # Print the results
+  # print("-------------- Turn %d --------------" % (final_turn_count))
+  # print_game_state(final_board_state)
+  # print()
+
+
+  @timer_func
+  @jax.jit
+  def play_benchmark(
+    current_network_parameters: hk.Params
+    ):
+    current_board_state = new_game_state()
+
+    def body_function(i, a):
+      b0, b1 = a
+      b1 = jnp.where(
+        check_win(b1, 0),
+        new_game_state(),
+        make_best_move(b0, b1,0)
+      )
+      b1 = jnp.where(
+        check_win(b1, 1),
+        new_game_state(),
+        make_best_move(b0, b1, 1)
+      )
+      return (b0, b1)
+
+    # fori_loop prevents loop unrolling (a default feature in JAX)
+    r = jax.lax.fori_loop(
+      0, 5000, # Each game averages 100 moves on an 11x11 board. It's playing 100 games?!
+      body_function,
+      (current_network_parameters, current_board_state)
+    )
+
+
+    # for i in range(1000):
+    #   # Make the best move
+    #   current_board_state = jnp.where(
+    #     check_win(current_board_state, not current_board_turn_color),
+    #     new_game_state(),
+    #     make_best_move(current_network_parameters, current_board_state, current_board_turn_color)
+    #   )
+    #   current_board_turn_color = not current_board_turn_color
+    # # end for loop
+    return r[1]
+  # end play_benchmark
+
+  while True:
+    network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
+    s = play_benchmark(network_parameters)
+    print_game_state(s)
 
 
 
