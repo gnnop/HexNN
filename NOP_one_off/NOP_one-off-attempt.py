@@ -171,9 +171,9 @@ def main(_):
     aiOneScore = 0
     aiTwoScore = 0
     print("evaluating AIs")
-    for i in range(10):
+    for pp in range(10):
       hexgame = hexGame()
-      if i % 2 == 0:
+      if pp % 2 == 0:
         firstPlayer = aiOne
         negOnePlayer = aiTwo
       else:
@@ -181,7 +181,7 @@ def main(_):
         negOnePlayer = aiOne
       
       while hexgame.checkGameWin() == 0:
-        if i == 0:
+        if pp == 0:
           hexgame.displayGame()
         boards = []
         gamestates = []
@@ -201,7 +201,7 @@ def main(_):
         
         hexgame.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
       
-      if i % 2 == 0:
+      if pp % 2 == 0:
         if hexgame.checkGameWin() == 1:
           aiOneScore += 1
         else:
