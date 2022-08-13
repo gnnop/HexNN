@@ -9,6 +9,7 @@ import numpy as np
 import optax
 import colorama
 from time import time
+from functools import partial
 
 
 
@@ -81,13 +82,20 @@ def main(_):
   def place_red_piece(game_state: jnp.ndarray, x: jnp.unsignedinteger, y: jnp.unsignedinteger):
     return game_state.at[1,x,y].set(0)
 
+  def place_piece(game_state: jnp.ndarray, x: jnp.unsignedinteger, y: jnp.unsignedinteger, color: jnp.unsignedinteger):
+    return jnp.where(
+      color,
+      place_red_piece(game_state, x, y),
+      place_blue_piece(game_state, x, y)
+    )
+
   def check_free(game_state: jnp.ndarray, x: jnp.unsignedinteger, y: jnp.unsignedinteger):
     return game_state[0][y][x] * game_state[1][x][y]
 
   def free_cells(game_state: jnp.ndarray):
     return jnp.multiply(game_state[0], jnp.transpose(game_state[1]))
 
-  @jax.jit
+  # @jax.jit
   def check_win(game_state: jnp.ndarray, color: jnp.unsignedinteger) -> bool:
     x = jnp.where(color, game_state[1][0], game_state[0][0])
     x = x.astype(jnp.float32)
@@ -108,6 +116,9 @@ def main(_):
     t = game_state[1]
     game_state = game_state.at[1].set(game_state[0])
     game_state = game_state.at[0].set(t)
+
+  def next_color(color):
+    return (color+1)%2
 
   def print_game_state(game_state: jnp.ndarray):
     # top red bar
@@ -151,13 +162,10 @@ def main(_):
   colorama.init()
 
 
-
-
-  def estimate_best_move(
+  def predict_raw_probability(
     network_parameters: hk.Params,
     current_board_state: jnp.ndarray,
-    current_turn_color: jnp.unsignedinteger
-  ) -> Tuple:
+  ) -> np.ndarray:
     '''
     Finds what the AI thinks the probabilities of players winning are
     0 -> Red wins
@@ -165,6 +173,26 @@ def main(_):
     '''
     predicted_probabilities = net.apply(network_parameters, current_board_state)
     predicted_probabilities = predicted_probabilities[0]
+    return predicted_probabilities
+  # end predict_raw_probability
+
+
+
+  def predict_probability(
+    network_parameters: hk.Params,
+    current_board_state: jnp.ndarray,
+    current_turn_color: jnp.unsignedinteger
+  ) -> np.ndarray:
+    '''
+    Finds what the AI thinks the probabilities of players winning are
+    0 -> Red wins
+    1 -> Blue wins
+
+    Differences between predict_raw_probability:
+      Shifts the probabilities so the "best move" is always the maximum
+      Filters out illegal moves
+    '''
+    predicted_probabilities = predict_raw_probability(network_parameters, current_board_state)
     # If red is playing, subtract from one so we're always trying to maximize the score
     predicted_probabilities = jnp.where(
       current_turn_color,
@@ -175,6 +203,101 @@ def main(_):
     # Filter out illegal moves
     predicted_probabilities = jnp.multiply(free_cells(current_board_state).astype(jnp.float32).transpose(), predicted_probabilities)
 
+    return predicted_probabilities
+  # end predict_probability
+
+
+  @partial(jax.jit, static_argnums=(3,))
+  def super_AI(
+      current_network_parameters: hk.Params,
+      game_state: jnp.ndarray, 
+      color: jnp.unsignedinteger, 
+      level=1):
+    '''
+    Creates a super powerful version of the AI,
+    which is most likely still dumb
+    '''
+
+    '''
+    Prefixes: 
+    a_ just your average AI
+    s_ super AI
+    '''
+
+    a_predicted_probabilities = predict_raw_probability( # average predicted probabilities
+      current_network_parameters,
+      game_state
+    )
+
+    s_predicted_probabilities = a_predicted_probabilities # super predicted probabilites
+    # Compute the super AI's predicted probabilites
+    # This is dumb; just a few layers of BFS in the game tree
+    # Overridden by checking for winning game states
+    def sr(index, spp: jnp.ndarray):
+      '''
+      A subroutine to update s_predicted_probabilites
+      '''
+      i, j = jnp.unravel_index(index, (board_size, board_size))
+
+      # Check for a winning state
+      # Override anything the AI comes up with
+      b0 = jnp.where(
+        check_win(game_state, color),
+        next_color(color),
+        spp
+      )
+      # Let the super AI think through the next move
+      if level > 0:
+        next_game_state = place_piece(game_state, i, j, color)
+        s_a_predicted_probabilities, s_s_predicted_probabilities = super_AI(current_network_parameters, next_game_state, next_color(color), level-1)
+        b0 = b0.at[i,j].set(
+          jnp.where(
+            color,
+            jnp.maximum(
+              b0[i][j],
+              jnp.max(
+                s_s_predicted_probabilities
+              )
+            ),
+            jnp.minimum(
+              b0[i][j],
+              jnp.min(
+                s_s_predicted_probabilities
+              ) # min
+            ), # minimum
+          ) # where
+        ) # set
+      #end if level > 0
+      return b0
+
+    #end sr
+    s_predicted_probabilities = jax.lax.fori_loop(
+      0, board_size**2,
+      sr,
+      s_predicted_probabilities
+    )
+    # End iterating over all cells
+
+    return a_predicted_probabilities, s_predicted_probabilities
+  # end super_AI
+
+  # Try out the super AI
+  b = new_game_state()
+  network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
+  print(super_AI(network_parameters, b, 0))
+
+
+
+  def estimate_best_move(
+    network_parameters: hk.Params,
+    current_board_state: jnp.ndarray,
+    current_turn_color: jnp.unsignedinteger
+  ) -> Tuple:
+    predicted_probabilities = predict_probability(
+      network_parameters,
+      current_board_state,
+      current_turn_color,
+    )
     # Without any illegal move, now try to find the most ideal one
     index = predicted_probabilities.argmax()
     index_unraveled = jnp.unravel_index(index, predicted_probabilities.shape)
@@ -182,13 +305,9 @@ def main(_):
   # end estimate_best_move
 
   # Try it out with a new game and random network parameters
-  b = new_game_state()
-  network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
-  print(estimate_best_move(network_parameters, b, 0))
-
-
-
-
+  # b = new_game_state()
+  # network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
+  # print(estimate_best_move(network_parameters, b, 0))
 
 
 
@@ -297,10 +416,24 @@ def main(_):
     return r[1]
   # end play_benchmark
 
-  while True:
-    network_parameters = net.init(jax.random.PRNGKey(int(time()*100)), b)
-    s = play_benchmark(network_parameters)
-    print_game_state(s)
+
+  # while True:
+  #   network_parameters = net.init(jax.random.PRNGKey(int(time()*100)), b)
+  #   s = play_benchmark(network_parameters)
+  #   print_game_state(s)
+
+  @jax.jit
+  def train_me(
+    current_network_parameters: hk.Params
+  ) -> hk.Params:
+    next_network_parameters = current_network_parameters
+
+    # TODO magic
+    
+    return next_network_parameters
+  # end train_me
+
+
 
 
 
