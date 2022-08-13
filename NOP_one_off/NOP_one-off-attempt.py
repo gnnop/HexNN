@@ -38,9 +38,9 @@ class hexGame():
         else:
           self.won = hexgame.won
           self.gameSize = hexgame.gameSize
-          self.hexes = hexgame.hexes
+          self.hexes = copy.deepcopy(hexgame.hexes)
           self.hexNeighbors = hexgame.hexNeighbors
-          self.winArray = hexgame.winArray.copy()
+          self.winArray = copy.deepcopy(hexgame.winArray)
 
     def takeTurn(self, x, y): 
       if self.hexes[self.hexToLine(x, y)] == 0:
@@ -189,7 +189,7 @@ def main(_):
           if hexgame.hexes[i] == 0:
             gamestates.append(i)
             hexgame.hexes[i] = hexgame.getHexTurn()
-            boards.append(hexgame.hexes.copy())
+            boards.append(copy.deepcopy(hexgame.hexes))
             hexgame.hexes[i] = 0
           
         if hexgame.getHexTurn() == 1:
@@ -247,7 +247,7 @@ def main(_):
             labels.append(-1)
             boards.append(copy.deepcopy(hexgame_.hexes))
 
-          alphaBetaBoards.append(hexgame_.hexes.copy())
+          alphaBetaBoards.append(copy.deepcopy(hexgame_.hexes))
       #alpha beta value - the nn returns 
 
       #Now serialize the boards and apply everything:
@@ -332,9 +332,6 @@ def main(_):
 
     pool = ThreadPool(20)
     master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
-
-    if step < 2:
-      print(master_list)
 
     flat_list_data = [item for sublist in master_list for item in sublist[0]]
     flat_list_label = [item for sublist in master_list for item in sublist[1]]
