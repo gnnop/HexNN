@@ -10,6 +10,8 @@ import optax
 import colorama
 from time import time
 from functools import partial
+#from multiprocessing.dummy import Pool as ThreadPool
+from multiprocessing import Pool as ThreadPool
 
 
 
@@ -155,7 +157,9 @@ def main(_):
 
   # Make the network and optimiser.
   net = hk.without_apply_rng(hk.transform(net_fn))
+  network_parameters = net.init(jax.random.PRNGKey(int(time())), new_game_state())
   opt = optax.adam(1e-3)
+  opt_state = opt.init(network_parameters)
 
 
   # Colorama for code coloring
@@ -282,9 +286,9 @@ def main(_):
   # end super_AI
 
   # Try out the super AI
-  b = new_game_state()
-  network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
-  print(super_AI(network_parameters, b, 0))
+  # b = new_game_state()
+  # network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
+  # print(super_AI(network_parameters, b, 0))
 
 
 
@@ -422,16 +426,146 @@ def main(_):
   #   s = play_benchmark(network_parameters)
   #   print_game_state(s)
 
-  @jax.jit
+  @timer_func
   def train_me(
-    current_network_parameters: hk.Params
+    current_network_parameters: hk.Params,
+    current_opt_state: optax.OptState
   ) -> hk.Params:
-    next_network_parameters = current_network_parameters
+
+
+
+    current_game_state = new_game_state()
+    current_color = 0
+
+    # def generate_turn_batch():
+    #   @jax.jit
+    #   def generate_turn(a):
+    #     i, j = jnp.unravel_index(a, (board_size, board_size))
+    #     next_game_state = place_piece(current_game_state, i, j, current_color)
+    #     next_game_color = next_color(current_color)
+    #     return super_AI(current_network_parameters, next_game_state, next_game_color)
+
+    #   generate_turns = jax.vmap(generate_turn)
+    #   turn_indices = jnp.arange(board_size*board_size)
+    #   master_list = generate_turns(turn_indices)
+    #   r = jnp.asarray(master_list)
+    #   return r
+
+    @jax.jit
+    def generate_turn_batch(random_key):
+      batch_size = 5
+      batch = jnp.tile(new_game_state(), (batch_size*2,1,1,1))
+      def body_function(i, a):
+        '''
+        a0: batch
+        a1: random key
+        '''
+        b, rk = a
+        gs=b[i]
+
+        # Get a random position
+        x, y = jax.random.randint(rk, shape=(2,), minval=0, maxval=board_size, dtype=jnp.uint8); k, rk = jax.random.split(rk)
+        # Place a blue piece at that random position
+        gs1 = jnp.where(
+          check_win(gs, 0),
+          new_game_state(),
+          place_blue_piece(gs,x,y) 
+        )
+
+        
+        # Get a random position
+        x, y = jax.random.randint(rk, shape=(2,), minval=0, maxval=board_size, dtype=jnp.uint8); k, rk = jax.random.split(rk)
+        # Place a red piece at that position
+        gs2 = jnp.where(
+          check_win(gs1, 1),
+          new_game_state(),
+          place_red_piece(gs1,x,y) 
+        )
+        b.at[i*2].set(gs1)
+        b.at[i*2+1].set(gs2)
+        return (b, rk)
+      # end body_function
+      # fori_loop prevents loop unrolling (a default feature in JAX)
+      r = jax.lax.fori_loop(
+        0, batch_size,
+        body_function,
+        (batch, random_key)
+      )
+      new_batch = r[0]
+      new_key = r[1]
+      return jnp.asarray(new_batch)
+    # end generate_turn_batch
+
+    @timer_func
+    @jax.jit
+    def loss(params: hk.Params, batch: jnp.ndarray):
+      '''
+      Sum-squared difference
+
+      Batch: 
+        0-predicted 1-expected
+          for all trials in batch
+            game_state rows
+              game_state columns
+      For example, a 9-size board has the batch shape (2,81,9,9)
+      '''
+      # For each index i between 0 and the batch size
+      def bf(i, l):
+        predicted, expected = super_AI(params,batch[i],i%2)
+        l = l + jnp.sum(
+            jnp.square(
+              jnp.subtract(
+                predicted,
+                expected
+              )
+            )
+          )
+        return l
+      # end bf
+
+
+      l = jax.lax.fori_loop(
+        0, len(batch),
+        bf,
+        0
+      )
+      return l
+    # end loss
+
+    @jax.jit
+    def update(
+        params: hk.Params,
+        opt_state: optax.OptState,
+        batch: jnp.ndarray
+    ) -> Tuple[hk.Params, optax.OptState]:
+      """Learning rule (stochastic gradient descent)."""
+      grads = jax.grad(loss)(params, batch)
+      r = opt.update(grads, opt_state)
+      updates, opt_state = r
+      new_params = optax.apply_updates(params, updates)
+      return new_params, opt_state
+    # end update
+
+    random_key = jax.random.PRNGKey(int(time()))
+    batch = generate_turn_batch(random_key)
+    print("Loss: %f" % (loss(current_network_parameters, batch)))
+    next_network_parameters, next_opt_state = update(
+      current_network_parameters,
+      current_opt_state,
+      batch
+    )
+
+    #while not check_win(game_state, )
+    
 
     # TODO magic
     
-    return next_network_parameters
+    return next_network_parameters, next_opt_state
   # end train_me
+
+  print("train me")
+  for i in range(150):
+    network_parameters, opt_state = train_me(network_parameters, opt_state)
 
 
 
