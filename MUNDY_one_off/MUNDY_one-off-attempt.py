@@ -10,8 +10,7 @@ import optax
 import colorama
 from time import time
 from functools import partial
-#from multiprocessing.dummy import Pool as ThreadPool
-from multiprocessing import Pool as ThreadPool
+import pickle
 
 
 
@@ -216,7 +215,7 @@ def main(_):
       current_network_parameters: hk.Params,
       game_state: jnp.ndarray, 
       color: jnp.unsignedinteger, 
-      level=1):
+      level=2):
     '''
     Creates a super powerful version of the AI,
     which is most likely still dumb
@@ -452,8 +451,7 @@ def main(_):
     #   return r
 
     @jax.jit
-    def generate_turn_batch(random_key):
-      batch_size = 5
+    def generate_turn_batch(random_key, batch_size = 150):
       batch = jnp.tile(new_game_state(), (batch_size*2,1,1,1))
       def body_function(i, a):
         '''
@@ -548,86 +546,28 @@ def main(_):
 
     random_key = jax.random.PRNGKey(int(time()))
     batch = generate_turn_batch(random_key)
-    print("Loss: %f" % (loss(current_network_parameters, batch)))
     next_network_parameters, next_opt_state = update(
       current_network_parameters,
       current_opt_state,
       batch
     )
 
-    #while not check_win(game_state, )
-    
+    # evaluation
+    random_key = jax.random.PRNGKey(int(time()))
+    batch = generate_turn_batch(random_key)
+    print("Loss: %f" % (loss(current_network_parameters, batch)))
+    # end evaluation
 
-    # TODO magic
-    
     return next_network_parameters, next_opt_state
   # end train_me
 
   print("train me")
   for i in range(150):
     network_parameters, opt_state = train_me(network_parameters, opt_state)
-
-
-
-
-
-
-
-
-  # def play_myself(
-  #   network_parameters: hk.Params,
-  #   current_board_state: np.ndarray,
-  #   current_color: np.unsignedinteger,
-  #   depth=5) :
-  #   '''
-  #   Plays one turn against a suped-up version of itself.
-  #   Returns a tuple with the following:
-  #     The game state after the most plausible legal move, assessed by the AI
-  #     The probability of winning at each space, assessed by the AI
-  #     The probability of winning at each space, assessed by the super-AI.
-
-  #     The super-AI just searches the game tree a few steps ahead
-
-  #   If the game is over, current_board_state returns an empty board
-  #   '''
-  #   predicted_probabilities = net.apply(network_parameters, current_board_state)
-  #   predicted_probabilities_super = predicted_probabilities.copy()
-  #   if depth > 0:
-  #     for i in range(board_size):
-  #       for j in range(board_size):
-  #         # Place a piece
-  #         next_board_state = current_board_state.copy()
-  #         next_color       = 0 # blue=0, red=1
-  #         if current_color: # red
-  #           place_red_piece(next_board_state, i, j)
-  #           if check_win(next_board_state, 1):
-  #             predicted_probabilities_super[i][j]=1
-  #         else:             # blue
-  #           place_blue_piece(next_board_state, i, j)
-  #           next_color = 1
-  #           if check_win(next_board_state, 0):
-  #             predicted_probabilities_super[i][j]=1
-  #         if predicted_probabilities_super[i][j] < 1:
-  #           opponent_play = play_myself(network_parameters, next_board_state, next_color, depth-1)
-  #           predicted_probabilities_super = opponent_play
-  #   # Get the next board state
-  #   next_board_state = current_board_state.copy()
-
-
-
-
-
-
-
-  # game_size = 11
-  # initial_game_state = new_game_state(game_size)
-
-  # batch_size = 1000
-  # game_states    = jnp.tile(initial_game_state, (batch_size, 1, 1, 1))
-  # game_turnColor = jnp.ones(batch_size, dtype=jnp.uint8)*game_size
-
-  # auto_batch_checkwin = jax.vmap(check_win)
-  # print(auto_batch_checkwin(game_states, game_turnColor))
+    # Save the model for further analysis later
+    file = open('trained-model.params', 'wb')
+    pickle.dump(network_parameters, file)
+    file.close()
 
 if __name__ == "__main__":
   app.run(main)
