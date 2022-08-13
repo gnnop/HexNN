@@ -1,3 +1,4 @@
+from doctest import master
 from math import gamma
 from typing import Iterator, Mapping, Tuple
 
@@ -11,6 +12,7 @@ import random
 import pickle
 import copy
 from multiprocessing.dummy import Pool as ThreadPool
+import colorama
 
 #First I'm going to start with an 8 by 8 board:
 
@@ -40,13 +42,37 @@ class hexGame():
           self.hexNeighbors = hexgame.hexNeighbors
           self.winArray = hexgame.winArray.copy()
 
-    def takeTurn(self, x, y):
+    def takeTurn(self, x, y): 
       if self.hexes[self.hexToLine(x, y)] == 0:
         self.hexes[self.hexToLine(x, y)] = self.hexes[self.turnPos]
         self.hexes[self.turnPos] *= -1
         return True
       else:
         return False
+
+    def displayGame(self):
+      # top red bar
+      s = "" # the string to print
+      s += colorama.Fore.RED + '-'*(hexDims*2+1) + colorama.Fore.RESET + '\n'
+      for i in range(hexDims):
+        # spacing to line up rows hexagonally
+        s += ' '*i
+        # left blue bar
+        s += colorama.Fore.BLUE + '\\' + colorama.Fore.RESET
+        # print a row of the game state
+        for j in range(hexDims):
+          character = '.'
+          if self.hexes[self.hexToLine(i, j)]==1:
+            character = colorama.Fore.BLUE+'B'+colorama.Fore.RESET
+          elif self.hexes[self.hexToLine(i, j)]==-1:
+            character = colorama.Fore.RED+'R'+colorama.Fore.RESET
+          s += character + ' '
+        # right blue bar and end of row
+        s += colorama.Fore.BLUE + '\\' + colorama.Fore.RESET + '\n'
+      # bottom red bar
+      s += ' '*i + ' '
+      s += colorama.Fore.RED + '-'*(hexDims*2+1) + colorama.Fore.RESET
+      print(s)
 
     def takeLinTurn(self, x):
       if self.hexes[x] == 0:
@@ -145,7 +171,7 @@ def main(_):
     aiOneScore = 0
     aiTwoScore = 0
     print("evaluating AIs")
-    for i in range(100):
+    for i in range(10):
       hexgame = hexGame()
       if i % 2 == 0:
         firstPlayer = aiOne
@@ -155,6 +181,8 @@ def main(_):
         negOnePlayer = aiOne
       
       while hexgame.checkGameWin() == 0:
+        if i == 0:
+          hexgame.displayGame()
         boards = []
         gamestates = []
         for i in range(hexDims**2):
@@ -197,9 +225,6 @@ def main(_):
     ii = 0
 
     while hexgame.checkGameWin() == 0:
-
-      boards.append(hexgame.hexes)
-
       alphaBetaBoards = []
 
       foundGameWin = False
@@ -216,11 +241,11 @@ def main(_):
           if hexgame_.getHexTurn() == game_cond == 1:
             foundGameWin = True
             labels.append(1)
-            boards.append(hexgame_.hexes.copy())
+            boards.append(copy.deepcopy(hexgame_.hexes))
           elif hexgame_.getHexTurn() == game_cond == -1:
             foundGameWin = True
             labels.append(-1)
-            boards.append(hexgame_.hexes.copy())
+            boards.append(copy.deepcopy(hexgame_.hexes))
 
           alphaBetaBoards.append(hexgame_.hexes.copy())
       #alpha beta value - the nn returns 
@@ -295,9 +320,9 @@ def main(_):
 
   # Train/eval loop.
   for step in range(100001):
-    if step % 100:
+    if step % 100 == 0:
       print(step)
-    if step % 1000 == 50:
+    if step % 300 == 0:
       # Periodically evaluate classification accuracy on train & test sets.
       oldScore, newScore = compareAI(grabAI, params)
       print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
@@ -307,10 +332,13 @@ def main(_):
 
     pool = ThreadPool(20)
     master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
-    flat_list_data = [item[0] for sublist in master_list for item in sublist]
-    flat_list_label = [item[1] for sublist in master_list for item in sublist]
-    
 
+    if step < 2:
+      print(master_list)
+
+    flat_list_data = [item for sublist in master_list for item in sublist[0]]
+    flat_list_label = [item for sublist in master_list for item in sublist[1]]
+    
     val, params, opt_state = update(params, opt_state, flat_list_data, flat_list_label)
     print(val)
 
