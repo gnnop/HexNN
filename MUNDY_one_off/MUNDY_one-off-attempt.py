@@ -18,7 +18,7 @@ jax.config.update('jax_platform_name', 'cpu')
 
 
 def timer_func(func):
-    # This function shows the execution time of 
+    # This function shows the execution time of
     # the function object passed
     def wrap_func(*args, **kwargs):
         t1 = time()
@@ -50,7 +50,7 @@ def net_fn(game_state: jnp.ndarray):
 
 
 
-  
+
 
 
 def load_dataset(batch_size: int):
@@ -111,12 +111,13 @@ def main(_):
 
   def print_game_state(game_state: jnp.ndarray):
     # top red bar
-    print(colorama.Fore.RED + '-'*(board_size*2+1) + colorama.Fore.RESET)
+    s = "" # the string to print
+    s += colorama.Fore.RED + '-'*(board_size*2+1) + colorama.Fore.RESET + '\n'
     for i in range(board_size):
       # spacing to line up rows hexagonally
-      print(' '*i, end='')
+      s += ' '*i
       # left blue bar
-      print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET, end='')
+      s += colorama.Fore.BLUE + '\\' + colorama.Fore.RESET
       # print a row of the game state
       for j in range(board_size):
         character = '.'
@@ -124,13 +125,14 @@ def main(_):
           character = colorama.Fore.BLUE+'B'+colorama.Fore.RESET
         elif game_state[1][j][i]==0:
           character = colorama.Fore.RED+'R'+colorama.Fore.RESET
-        print(character, end=' ')
+        s += character + ' '
       # right blue bar and end of row
-      print(colorama.Fore.BLUE + '\\' + colorama.Fore.RESET)
+      s += colorama.Fore.BLUE + '\\' + colorama.Fore.RESET + '\n'
     # bottom red bar
-    print(' '*i, end=' ')
-    print(colorama.Fore.RED + '-'*(board_size*2+1) + colorama.Fore.RESET)
-  # end print_game_state 
+    s += ' '*i + ' '
+    s += colorama.Fore.RED + '-'*(board_size*2+1) + colorama.Fore.RESET
+    print(s)
+  # end print_game_state
 
   ################################## END Game Mechanics ###################################
 
@@ -152,7 +154,7 @@ def main(_):
 
 
   def estimate_best_move(
-    network_parameters: hk.Params, 
+    network_parameters: hk.Params,
     current_board_state: jnp.ndarray,
     current_turn_color: jnp.unsignedinteger
   ) -> Tuple:
@@ -165,14 +167,14 @@ def main(_):
     predicted_probabilities = predicted_probabilities[0]
     # If red is playing, subtract from one so we're always trying to maximize the score
     predicted_probabilities = jnp.where(
-      current_turn_color, 
+      current_turn_color,
       jnp.subtract(1, predicted_probabilities),
       predicted_probabilities
       )
-    
+
     # Filter out illegal moves
     predicted_probabilities = jnp.multiply(free_cells(current_board_state).astype(jnp.float32).transpose(), predicted_probabilities)
-    
+
     # Without any illegal move, now try to find the most ideal one
     index = predicted_probabilities.argmax()
     index_unraveled = jnp.unravel_index(index, predicted_probabilities.shape)
@@ -192,8 +194,8 @@ def main(_):
 
   @jax.jit
   def make_best_move(
-    current_network_parameters: hk.Params, 
-    current_board_state: jnp.ndarray, 
+    current_network_parameters: hk.Params,
+    current_board_state: jnp.ndarray,
     current_turn_color: jnp.unsignedinteger
   ) -> jnp.ndarray:
     '''
@@ -205,8 +207,8 @@ def main(_):
 
     # Make that move
     next_board_state = jnp.where(
-      current_turn_color, 
-      place_red_piece(current_board_state, current_best_move[0], current_best_move[1]), 
+      current_turn_color,
+      place_red_piece(current_board_state, current_best_move[0], current_best_move[1]),
       place_blue_piece(current_board_state, current_best_move[0], current_best_move[1])
     )
 
@@ -247,7 +249,7 @@ def main(_):
   #     print("Blue wins!")
   #   else:
   #     print("Red wins!")
-      
+
   # # Print the results
   # print("-------------- Turn %d --------------" % (final_turn_count))
   # print_game_state(final_board_state)
@@ -296,22 +298,22 @@ def main(_):
   # end play_benchmark
 
   while True:
-    network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
+    network_parameters = net.init(jax.random.PRNGKey(int(time()*100)), b)
     s = play_benchmark(network_parameters)
     print_game_state(s)
 
 
 
-    
+
 
 
   # def play_myself(
-  #   network_parameters: hk.Params, 
-  #   current_board_state: np.ndarray, 
-  #   current_color: np.unsignedinteger, 
+  #   network_parameters: hk.Params,
+  #   current_board_state: np.ndarray,
+  #   current_color: np.unsignedinteger,
   #   depth=5) :
   #   '''
-  #   Plays one turn against a suped-up version of itself. 
+  #   Plays one turn against a suped-up version of itself.
   #   Returns a tuple with the following:
   #     The game state after the most plausible legal move, assessed by the AI
   #     The probability of winning at each space, assessed by the AI
@@ -344,7 +346,7 @@ def main(_):
   #   # Get the next board state
   #   next_board_state = current_board_state.copy()
 
-          
+
 
 
 
@@ -356,7 +358,7 @@ def main(_):
   # batch_size = 1000
   # game_states    = jnp.tile(initial_game_state, (batch_size, 1, 1, 1))
   # game_turnColor = jnp.ones(batch_size, dtype=jnp.uint8)*game_size
-  
+
   # auto_batch_checkwin = jax.vmap(check_win)
   # print(auto_batch_checkwin(game_states, game_turnColor))
 
