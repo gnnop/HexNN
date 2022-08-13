@@ -10,6 +10,7 @@ import optax
 import random
 import pickle
 import copy
+from multiprocessing.dummy import Pool as ThreadPool
 
 #First I'm going to start with an 8 by 8 board:
 
@@ -190,13 +191,14 @@ def main(_):
   def generateGameBatch(hexgame,params):
     global hexDims
 
-    boards = {"data" : [], "label" : []}
+    boards = []
+    labels = []
 
     ii = 0
 
     while hexgame.checkGameWin() == 0:
 
-      boards["data"].append(hexgame.hexes)
+      boards.append(hexgame.hexes)
 
       alphaBetaBoards = []
 
@@ -213,12 +215,12 @@ def main(_):
           game_cond = hexgame_.checkGameWin()
           if hexgame_.getHexTurn() == game_cond == 1:
             foundGameWin = True
-            boards["label"].append(1)
-            boards["data"].append(hexgame_.hexes.copy())
+            labels.append(1)
+            boards.append(hexgame_.hexes.copy())
           elif hexgame_.getHexTurn() == game_cond == -1:
             foundGameWin = True
-            boards["label"].append(-1)
-            boards["data"].append(hexgame_.hexes.copy())
+            labels.append(-1)
+            boards.append(hexgame_.hexes.copy())
 
           alphaBetaBoards.append(hexgame_.hexes.copy())
       #alpha beta value - the nn returns 
@@ -227,9 +229,9 @@ def main(_):
       if not foundGameWin:
         ls = net.apply(params, np.array(alphaBetaBoards))
         if hexgame.getHexTurn() == 1: #simple alpha beta
-          boards["label"].append(jnp.max(ls))
+          labels.append(jnp.max(ls))
         else:
-          boards["label"].append(jnp.min(ls))
+          labels.append(jnp.min(ls))
 
         #Use some mix of exploration and the network
         if random.random() < 0.3:
@@ -247,18 +249,18 @@ def main(_):
               num+=1
             absPos+=1
         else:
-          boards["data"].append(copy.deepcopy(hexgame.hexes))
-          hexgame.takeLinTurn(gameStates[np.where(ls == boards["label"][-1])[0][0]])
+          boards.append(copy.deepcopy(hexgame.hexes))
+          hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
       else:
         break
       
-    return boards
+    return boards, labels
 
-  # Training loss (cross-entropy).
-  def loss(params: hk.Params, batch: Batch) -> jnp.ndarray:
+  # Training loss (cross-entropy).    pool = ThreadPool(40)
+  def loss(params: hk.Params, batch_data, batch_labels) -> jnp.ndarray:
     """Compute the loss of the network, including L2."""
-    logits = net.apply(params, jnp.array(batch["data"]))
-    labels = jnp.array(batch["label"])
+    logits = net.apply(params, jnp.array(batch_data))
+    labels = jnp.array(batch_labels)
 
     l2_loss = 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_leaves(params))
     softmax_xent = -jnp.sum(labels * jax.nn.log_softmax(logits))
@@ -271,13 +273,13 @@ def main(_):
   def update(
       params: hk.Params,
       opt_state: optax.OptState,
-      batch: Batch,
+      batch_data, batch_labels
   ) -> Tuple[hk.Params, optax.OptState]:
     """Learning rule (stochastic gradient descent)."""
-    grads = jax.grad(loss)(params, batch)
+    val, grads = jax.value_and_grad(loss)(params, batch_data, batch_labels)
     updates, opt_state = opt.update(grads, opt_state)
     new_params = optax.apply_updates(params, updates)
-    return new_params, opt_state
+    return val, new_params, opt_state
 
   # We maintain avg_params, the exponential moving average of the "live" params.
   # avg_params is used only for evaluation (cf. https://doi.org/10.1137/0330046)
@@ -302,7 +304,15 @@ def main(_):
       grabAI = copy.deepcopy(params)
 
     # Do SGD on a batch of training examples.
-    params, opt_state = update(params, opt_state, generateGameBatch(hexGame(), params))
+
+    pool = ThreadPool(20)
+    master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
+    flat_list_data = [item[0] for sublist in master_list for item in sublist]
+    flat_list_label = [item[1] for sublist in master_list for item in sublist]
+    
+
+    val, params, opt_state = update(params, opt_state, flat_list_data, flat_list_label)
+    print(val)
 
   file = open('trained-model.params', 'wb')
   pickle.dump(params, file)
