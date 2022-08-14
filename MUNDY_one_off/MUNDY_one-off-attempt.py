@@ -49,22 +49,6 @@ def net_fn(game_state: jnp.ndarray):
 
 
 
-
-
-
-
-
-
-def load_dataset(batch_size: int):
-  # TODO
-  pass
-
-
-
-
-
-
-
 def main(_):
 
 
@@ -157,6 +141,13 @@ def main(_):
   # Make the network and optimiser.
   net = hk.without_apply_rng(hk.transform(net_fn))
   network_parameters = net.init(jax.random.PRNGKey(int(time())), new_game_state())
+  try:
+    network_parameters = pickle.load(open( 'trained-model.dat', 'rb'))
+  except Exception as e:
+    print("Warning: unable to open saved parameters")
+    print(e)
+  print(net)
+
   opt = optax.adam(1e-3)
   opt_state = opt.init(network_parameters)
 
@@ -565,7 +556,7 @@ def main(_):
   for i in range(150):
     network_parameters, opt_state = train_me(network_parameters, opt_state)
     # Save the model for further analysis later
-    file = open('trained-model.params', 'wb')
+    file = open('trained-model.dat', 'wb')
     pickle.dump(network_parameters, file)
     file.close()
 
