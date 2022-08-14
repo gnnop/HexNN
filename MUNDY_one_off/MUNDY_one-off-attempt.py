@@ -48,7 +48,7 @@ def net_fn(game_state: jnp.ndarray):
   return mlp(x)
 
 
-
+######################################   MAIN   #########################################
 def main(_):
 
 
@@ -136,7 +136,7 @@ def main(_):
 
 
 
-
+  # SETUP
 
   # Make the network and optimiser.
   net = hk.without_apply_rng(hk.transform(net_fn))
@@ -150,7 +150,6 @@ def main(_):
 
   opt = optax.adam(1e-3)
   opt_state = opt.init(network_parameters)
-
 
   # Colorama for code coloring
   colorama.init()
@@ -169,8 +168,6 @@ def main(_):
     predicted_probabilities = predicted_probabilities[0]
     return predicted_probabilities
   # end predict_raw_probability
-
-
 
   def predict_probability(
     network_parameters: hk.Params,
@@ -227,7 +224,7 @@ def main(_):
     # Compute the super AI's predicted probabilites
     # This is dumb; just a few layers of BFS in the game tree
     # Overridden by checking for winning game states
-    def sr(index, spp: jnp.ndarray):
+    def calculate_SuperAI_prediction(index, temp_s_predicted_probabilities: jnp.ndarray):
       '''
       A subroutine to update s_predicted_probabilites
       '''
@@ -238,7 +235,7 @@ def main(_):
       b0 = jnp.where(
         check_win(game_state, color),
         next_color(color),
-        spp
+        temp_s_predicted_probabilities
       )
       # Let the super AI think through the next move
       if level > 0:
@@ -267,7 +264,7 @@ def main(_):
     #end sr
     s_predicted_probabilities = jax.lax.fori_loop(
       0, board_size**2,
-      sr,
+      calculate_SuperAI_prediction,
       s_predicted_probabilities
     )
     # End iterating over all cells
@@ -416,30 +413,15 @@ def main(_):
   #   s = play_benchmark(network_parameters)
   #   print_game_state(s)
 
+  ###############################   TRAINING    #####################################
   @timer_func
   def train_me(
     current_network_parameters: hk.Params,
     current_opt_state: optax.OptState
   ) -> hk.Params:
 
-
-
     current_game_state = new_game_state()
     current_color = 0
-
-    # def generate_turn_batch():
-    #   @jax.jit
-    #   def generate_turn(a):
-    #     i, j = jnp.unravel_index(a, (board_size, board_size))
-    #     next_game_state = place_piece(current_game_state, i, j, current_color)
-    #     next_game_color = next_color(current_color)
-    #     return super_AI(current_network_parameters, next_game_state, next_game_color)
-
-    #   generate_turns = jax.vmap(generate_turn)
-    #   turn_indices = jnp.arange(board_size*board_size)
-    #   master_list = generate_turns(turn_indices)
-    #   r = jnp.asarray(master_list)
-    #   return r
 
     @jax.jit
     def generate_turn_batch(random_key, batch_size = 150):
@@ -485,7 +467,6 @@ def main(_):
       return jnp.asarray(new_batch)
     # end generate_turn_batch
 
-    @timer_func
     @jax.jit
     def loss(params: hk.Params, batch: jnp.ndarray):
       '''
@@ -535,6 +516,7 @@ def main(_):
       return new_params, opt_state
     # end update
 
+    # Training
     random_key = jax.random.PRNGKey(int(time()))
     batch = generate_turn_batch(random_key)
     next_network_parameters, next_opt_state = update(
@@ -543,7 +525,7 @@ def main(_):
       batch
     )
 
-    # evaluation
+    # Evaluation
     random_key = jax.random.PRNGKey(int(time()))
     batch = generate_turn_batch(random_key)
     print("Loss: %f" % (loss(current_network_parameters, batch)))
@@ -552,13 +534,26 @@ def main(_):
     return next_network_parameters, next_opt_state
   # end train_me
 
-  print("train me")
-  for i in range(150):
+  # We're back in the main loop
+  # Start the training process
+  while True:
     network_parameters, opt_state = train_me(network_parameters, opt_state)
     # Save the model for further analysis later
     file = open('trained-model.dat', 'wb')
     pickle.dump(network_parameters, file)
     file.close()
+
+
+###################################  END MAIN   #########################################
+
+
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
   app.run(main)
