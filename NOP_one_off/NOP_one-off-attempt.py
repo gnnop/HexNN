@@ -226,55 +226,52 @@ def main(_):
     boards = []
     labels = []
 
+    turns = 0
     while hexgame.checkGameWin() == 0:
+      turns += 1
       alphaBetaBoards = []
-
-      foundGameWin = False
-
       gameStates = []
 
       for i in range(hexDims**2):
-        hexgame_ = copy.deepcopy(hexgame)
-
-        if hexgame_.hexes[i] == 0 and not foundGameWin:
+        if hexgame.hexes[i] == 0:
+          hexgame.hexes[i] = hexgame.getHexTurn()#in place modification without changing state
           gameStates.append(i)
-          hexgame_.hexes[i] = hexgame_.getHexTurn()
-          game_cond = hexgame_.checkGameWin()
-          if  game_cond != 1:
-            foundGameWin = True
-            labels.append(game_cond)
-            boards.append(copy.deepcopy(hexgame_.hexes))
+          alphaBetaBoards.append(copy.deepcopy(hexgame.hexes))
+          hexgame.hexes[i] = 0
       #alpha beta value - the nn returns 
 
       #Now serialize the boards and apply everything:
-      if not foundGameWin:
-        ls = net.apply(params, np.array(alphaBetaBoards))
-        if hexgame.getHexTurn() == 1: #simple alpha beta
-          labels.append(jnp.max(ls))
-        else:
-          labels.append(jnp.min(ls))
-
-        #Use some mix of exploration and the network
-        if random.random() < 0.1:
-          num = 0
-          for i in hexgame.hexes:
-            if i == 0:
-              num+=1
-          pos = random.randrange(0, num)
-          num = 0
-          absPos = 0
-          for i in hexgame.hexes:
-            if i == 0:
-              if pos == num:
-                hexgame.takeLinTurn(absPos)
-              num+=1
-            absPos+=1
-        else:
-          boards.append(copy.deepcopy(hexgame.hexes))
-          hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+      ls = net.apply(params, np.array(alphaBetaBoards))
+      if hexgame.getHexTurn() == 1: #simple alpha beta
+        boards.append(copy.deepcopy(hexgame.hexes))
+        labels.append(jnp.max(ls))
       else:
-        break
+        boards.append(copy.deepcopy(hexgame.hexes))
+        labels.append(jnp.min(ls))
       
+      #make the actual move with some probability:
+
+      #Use some mix of exploration and the network
+      if random.random() < 0.1 and turns < 20:
+        num = 0
+        for i in hexgame.hexes:
+          if i == 0:
+            num+=1
+        pos = random.randrange(0, num)
+        num = 0
+        absPos = 0
+        for i in hexgame.hexes:
+          if i == 0:
+            if pos == num:
+              hexgame.takeLinTurn(absPos)
+            num+=1
+          absPos+=1
+      else:
+        hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+    
+    boards.append(copy.deepcopy(hexgame.hexes))
+    labels.append(hexgame.checkGameWin())
+
     return boards, labels
 
   # Training loss (cross-entropy).    pool = ThreadPool(40)
@@ -310,7 +307,7 @@ def main(_):
   grabAI = params
 
   # Train/eval loop.
-  for step in range(100001):
+  for step in range(10001):
     if step % 100 == 0:
       print(step)
     if step % 300 == 0:
