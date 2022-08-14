@@ -13,11 +13,7 @@ from functools import partial
 import pickle
 
 
-
-jax.config.update('jax_platform_name', 'cpu')
-
-
-
+#jax.config.update('jax_platform_name', 'cpu')
 
 def timer_func(func):
     # This function shows the execution time of
@@ -40,9 +36,10 @@ def net_fn(game_state: jnp.ndarray):
   num_spots = size*size
   mlp = hk.Sequential([
       hk.Flatten(),
-      hk.Linear(num_spots), jax.nn.relu,
-      hk.Linear(num_spots), jax.nn.relu,
-      hk.Linear(num_spots),
+      hk.Linear(num_spots*2), jax.nn.relu,
+      hk.Linear(num_spots),   jax.nn.relu,
+      hk.Linear(num_spots),   jax.nn.relu,
+      hk.Linear(num_spots),   jax.nn.sigmoid,
       hk.Reshape((size,size))
   ])
   return mlp(x)
@@ -203,7 +200,7 @@ def main(_):
       current_network_parameters: hk.Params,
       game_state: jnp.ndarray, 
       color: jnp.unsignedinteger, 
-      level=2):
+      level=1):
     '''
     Creates a super powerful version of the AI,
     which is most likely still dumb
@@ -417,14 +414,15 @@ def main(_):
   @timer_func
   def train_me(
     current_network_parameters: hk.Params,
-    current_opt_state: optax.OptState
+    current_opt_state: optax.OptState,
+    evaluate=False
   ) -> hk.Params:
 
     current_game_state = new_game_state()
     current_color = 0
 
     @jax.jit
-    def generate_turn_batch(random_key, batch_size = 150):
+    def generate_turn_batch(random_key, batch_size = 500):
       batch = jnp.tile(new_game_state(), (batch_size*2,1,1,1))
       def body_function(i, a):
         '''
@@ -526,9 +524,10 @@ def main(_):
     )
 
     # Evaluation
-    random_key = jax.random.PRNGKey(int(time()))
-    batch = generate_turn_batch(random_key)
-    print("Loss: %f" % (loss(current_network_parameters, batch)))
+    if evaluate:
+      random_key = jax.random.PRNGKey(int(time()))
+      batch = generate_turn_batch(random_key)
+      print("Loss: %f" % (loss(current_network_parameters, batch)))
     # end evaluation
 
     return next_network_parameters, next_opt_state
@@ -536,8 +535,11 @@ def main(_):
 
   # We're back in the main loop
   # Start the training process
+  iterations=0
   while True:
-    network_parameters, opt_state = train_me(network_parameters, opt_state)
+    iterations += 1
+    print("Iteration %d" % iterations)
+    network_parameters, opt_state = train_me(network_parameters, opt_state, iterations%10 == 1)
     # Save the model for further analysis later
     file = open('trained-model.dat', 'wb')
     pickle.dump(network_parameters, file)
