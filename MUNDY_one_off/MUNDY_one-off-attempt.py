@@ -526,7 +526,7 @@ def main(_):
     # Evaluation
     if evaluate:
       random_key = jax.random.PRNGKey(int(time()))
-      batch = generate_turn_batch(random_key)
+      batch = generate_turn_batch(random_key, batch_size=50)
       print("Loss: %f" % (loss(current_network_parameters, batch)))
     # end evaluation
 
