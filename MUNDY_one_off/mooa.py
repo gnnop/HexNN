@@ -114,7 +114,7 @@ def predict_probability(
 
 
 
-@partial(jax.jit, static_argnums=(3,))
+@partial(jax.jit, static_argnames=['level'])
 def super_AI(
     current_network_parameters: hk.Params,
     game_state: jnp.ndarray, 
@@ -182,7 +182,7 @@ def super_AI(
       jnp.where(
         hex.check_win(next_game_state, color),
         hex.next_color(color),
-        b0
+        b0[i,j]
       )
     )
     return b0
@@ -307,9 +307,6 @@ def train_me(
   current_opt_state: optax.OptState,
   evaluate=False
 ) -> hk.Params:
-
-  current_game_state = hex.new_game_state()
-  current_color = 0
 
   @partial(jax.jit, static_argnums=(1,))
   def generate_turn_batch(random_key, batch_size = 500):
@@ -443,7 +440,7 @@ def main(_):
   while True:
     iterations += 1
     print("Iteration %d" % iterations)
-    network_parameters, opt_state = train_me(network_parameters, opt, opt_state, iterations%10 == 1)
+    network_parameters, opt_state = train_me(network_parameters, opt, opt_state, iterations%10 == 2)
     # Save the model for further analysis later
     save_model()
 
