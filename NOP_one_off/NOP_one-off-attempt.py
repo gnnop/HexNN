@@ -1,3 +1,4 @@
+from cProfile import label
 from doctest import master
 from math import gamma
 from typing import Iterator, Mapping, Tuple
@@ -132,10 +133,6 @@ def net_fn(batch: Batch) -> jnp.ndarray:
       hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
       hk.Linear(100), jax.nn.relu,
       hk.Linear(20), jax.nn.relu,
       hk.Linear(1)
@@ -168,6 +165,7 @@ def main(_):
   #I believe what I'll do for now is to evaluate an entire game tree and look at all states along that tree.
 
   def compareAI(aiOne, aiTwo):
+    global hexDims
     aiOneScore = 0
     aiTwoScore = 0
     print("evaluating AIs")
@@ -179,6 +177,10 @@ def main(_):
       else:
         firstPlayer = aiTwo
         negOnePlayer = aiOne
+      
+      #Do the first turn so results aren't even
+      hexgame.takeLinTurn(random.randrange(0, hexDims ** 2))
+      
       
       while hexgame.checkGameWin() == 0:
         if pp == 0:
@@ -201,6 +203,8 @@ def main(_):
         
         hexgame.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
       
+      if pp == 0:
+        print("This player won, blue went first: ", hexgame.checkGameWin())
       if pp % 2 == 0:
         if hexgame.checkGameWin() == 1:
           aiOneScore += 1
@@ -222,63 +226,52 @@ def main(_):
     boards = []
     labels = []
 
-    ii = 0
-
+    turns = 0
     while hexgame.checkGameWin() == 0:
+      turns += 1
       alphaBetaBoards = []
-
-      foundGameWin = False
-
       gameStates = []
 
       for i in range(hexDims**2):
-        hexgame_ = copy.deepcopy(hexgame)
-
-        if hexgame_.hexes[i] == 0 and not foundGameWin:
+        if hexgame.hexes[i] == 0:
+          hexgame.hexes[i] = hexgame.getHexTurn()#in place modification without changing state
           gameStates.append(i)
-          hexgame_.hexes[i] = hexgame_.getHexTurn()
-          game_cond = hexgame_.checkGameWin()
-          if hexgame_.getHexTurn() == game_cond == 1:
-            foundGameWin = True
-            labels.append(1)
-            boards.append(copy.deepcopy(hexgame_.hexes))
-          elif hexgame_.getHexTurn() == game_cond == -1:
-            foundGameWin = True
-            labels.append(-1)
-            boards.append(copy.deepcopy(hexgame_.hexes))
-
-          alphaBetaBoards.append(copy.deepcopy(hexgame_.hexes))
+          alphaBetaBoards.append(copy.deepcopy(hexgame.hexes))
+          hexgame.hexes[i] = 0
       #alpha beta value - the nn returns 
 
       #Now serialize the boards and apply everything:
-      if not foundGameWin:
-        ls = net.apply(params, np.array(alphaBetaBoards))
-        if hexgame.getHexTurn() == 1: #simple alpha beta
-          labels.append(jnp.max(ls))
-        else:
-          labels.append(jnp.min(ls))
-
-        #Use some mix of exploration and the network
-        if random.random() < 0.3:
-          num = 0
-          for i in hexgame.hexes:
-            if i == 0:
-              num+=1
-          pos = random.randrange(0, num)
-          num = 0
-          absPos = 0
-          for i in hexgame.hexes:
-            if i == 0:
-              if pos == num:
-                hexgame.takeLinTurn(absPos)
-              num+=1
-            absPos+=1
-        else:
-          boards.append(copy.deepcopy(hexgame.hexes))
-          hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+      ls = net.apply(params, np.array(alphaBetaBoards))
+      if hexgame.getHexTurn() == 1: #simple alpha beta
+        boards.append(copy.deepcopy(hexgame.hexes))
+        labels.append(jnp.max(ls))
       else:
-        break
+        boards.append(copy.deepcopy(hexgame.hexes))
+        labels.append(jnp.min(ls))
       
+      #make the actual move with some probability:
+
+      #Use some mix of exploration and the network
+      if random.random() < 0.1 and turns < 20:
+        num = 0
+        for i in hexgame.hexes:
+          if i == 0:
+            num+=1
+        pos = random.randrange(0, num)
+        num = 0
+        absPos = 0
+        for i in hexgame.hexes:
+          if i == 0:
+            if pos == num:
+              hexgame.takeLinTurn(absPos)
+            num+=1
+          absPos+=1
+      else:
+        hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+    
+    boards.append(copy.deepcopy(hexgame.hexes))
+    labels.append(hexgame.checkGameWin())
+
     return boards, labels
 
   # Training loss (cross-entropy).    pool = ThreadPool(40)
@@ -287,11 +280,12 @@ def main(_):
     logits = net.apply(params, jnp.array(batch_data))
     labels = jnp.array(batch_labels)
 
-    l2_loss = 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_leaves(params))
-    softmax_xent = -jnp.sum(labels * jax.nn.log_softmax(logits))
-    softmax_xent /= labels.shape[0]
+    loss = jnp.sum(jnp.square(logits - labels)) / labels.shape[0]
+    #l2_loss = 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_leaves(params))
+    #softmax_xent = -jnp.sum(labels * jnp.log(logits))
+    #softmax_xent /= labels.shape[0]
 
-    return softmax_xent + 1e-4 * l2_loss
+    return loss
 
 
   @jax.jit
@@ -306,12 +300,6 @@ def main(_):
     new_params = optax.apply_updates(params, updates)
     return val, new_params, opt_state
 
-  # We maintain avg_params, the exponential moving average of the "live" params.
-  # avg_params is used only for evaluation (cf. https://doi.org/10.1137/0330046)
-  @jax.jit
-  def ema_update(params, avg_params):
-    return optax.incremental_update(params, avg_params, step_size=0.001)
-
   # Initialize network and optimiser; note we draw an input to get shapes.
   params = net.init(jax.random.PRNGKey(42), jnp.array([hexGame().hexes]))
   opt_state = opt.init(params)
@@ -319,7 +307,7 @@ def main(_):
   grabAI = params
 
   # Train/eval loop.
-  for step in range(100001):
+  for step in range(10001):
     if step % 100 == 0:
       print(step)
     if step % 300 == 0:
