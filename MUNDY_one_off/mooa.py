@@ -52,10 +52,13 @@ def net_fn(game_state: jnp.ndarray):
 net = hk.without_apply_rng(hk.transform(net_fn))
 
 def load_model(filename: str = 'trained-model.dat') -> hk.Params:
+  print("Loading MOOA model: %s ... " % filename, end='')
   network_parameters = net.init(jax.random.PRNGKey(int(time())), hex.new_game_state())
   try:
     network_parameters = pickle.load(open(filename, 'rb'))
+    print("Loaded!")
   except Exception as e:
+    print("Error!")
     print("Warning: unable to open saved parameters")
     print(e)
   print(net)
@@ -120,7 +123,7 @@ def super_AI(
     current_network_parameters: hk.Params,
     game_state: jnp.ndarray, 
     color: jnp.unsignedinteger, 
-    level=1):
+    level=3):
   '''
   Creates a super powerful version of the AI,
   which is most likely still dumb

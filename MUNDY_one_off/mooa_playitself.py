@@ -22,10 +22,10 @@ def play_a_game(
   current_turn_count = 0
   while True:
     current_turn_count += 1
-    print("-----------------------| Turn %d |---------------------" % current_turn_count)
 
     # Blue's turn
     current_board_state = mooa.make_best_move(blue_network_parameters, current_board_state, 0)
+    print("-----------------------| Turn %d |---------------------" % current_turn_count)
     mooa.hex.print_game_state(current_board_state)
     if hex.check_win(current_board_state, 0):
       print(colorama.Fore.YELLOW + "Blue WINS" + colorama.Fore.RESET)
@@ -60,4 +60,5 @@ def play_a_game(
 
 
 if __name__ == "__main__":
+  colorama.init()
   play_a_game(m_t, m_u)
