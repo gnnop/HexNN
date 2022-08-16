@@ -80,35 +80,18 @@ def predict_raw_probability(
   Finds what the AI thinks the probabilities of players winning are
   0 -> Red wins
   1 -> Blue wins
+
+  Good for training
   '''
   predicted_probabilities = net.apply(network_parameters, current_board_state)
   predicted_probabilities = predicted_probabilities[0]
   return predicted_probabilities
 # end predict_raw_probability
 
-def predict_probability(
-  network_parameters: hk.Params,
+def filter_illegal_moves(
   current_board_state: jnp.ndarray,
-  current_turn_color: jnp.unsignedinteger
+  predicted_probabilities: jnp.ndarray
 ) -> np.ndarray:
-  '''
-  Finds what the AI thinks the probabilities of players winning are
-  0 -> Red wins
-  1 -> Blue wins
-
-  Differences between predict_raw_probability:
-    Shifts the probabilities so the "best move" is always the maximum
-    Filters out illegal moves
-
-  Use this for considering which move to make in a real game.
-  '''
-  predicted_probabilities = predict_raw_probability(network_parameters, current_board_state)
-  # If red is playing, subtract from one so we're always trying to maximize the score
-  predicted_probabilities = jnp.where(
-    current_turn_color,
-    jnp.subtract(1, predicted_probabilities),
-    predicted_probabilities
-    )
 
   # Filter out illegal moves
   predicted_probabilities = jnp.multiply(hex.free_cells(current_board_state).astype(jnp.float32).transpose(), predicted_probabilities)
@@ -117,13 +100,12 @@ def predict_probability(
 # end predict_probability
 
 
-
-#@partial(jax.jit, static_argnames=['level'])
+@partial(jax.jit, static_argnames=['level'])
 def super_AI(
     current_network_parameters: hk.Params,
     game_state: jnp.ndarray, 
     color: jnp.unsignedinteger, 
-    level=3):
+    level=2):
   '''
   Creates a super powerful version of the AI,
   which is most likely still dumb
@@ -144,60 +126,60 @@ def super_AI(
   # Compute the super AI's predicted probabilites
   # This is dumb; just a few layers of BFS in the game tree
   # Overridden by checking for winning game states
-  def calculate_SuperAI_prediction(index, temp_s_predicted_probabilities: jnp.ndarray):
+  def calculate_SuperAI_prediction(index: jnp.ndarray):
     '''
     A subroutine to update s_predicted_probabilites
     '''
-    i, j = jnp.unravel_index(index, (hex.board_size, hex.board_size))
+    j, i = jnp.unravel_index(index, (hex.board_size, hex.board_size))
 
-    # Check for a winning state
-    # Override anything the AI comes up with
-    b0 = jnp.where(
-      hex.check_win(game_state, color),
-      hex.next_color(color),
-      temp_s_predicted_probabilities
-    )
+    r = 0
+
     # Let the super AI think through the next move
-    next_game_state = hex.place_piece(game_state, i, j, color)
     if level > 0:
+      next_game_state = hex.place_piece(game_state, i, j, color)
       s_s_predicted_probabilities = super_AI(current_network_parameters, next_game_state, hex.next_color(color), level-1)
-      b0 = b0.at[i,j].set(
-        jnp.where(
-          color,
-          jnp.maximum(
-            b0[i][j],
-            jnp.max(
-              s_s_predicted_probabilities
-            )
+      r = jnp.where(
+        color,
+        jnp.max(
+            s_s_predicted_probabilities
           ),
-          jnp.minimum(
-            b0[i][j],
-            jnp.min(
-              s_s_predicted_probabilities
-            ) # min
-          ), # minimum
-        ) # where
-      ) # set
+        jnp.min(
+            s_s_predicted_probabilities
+          ) # min
+      ) # where
+    else:
+      r = s_predicted_probabilities
     #end if level > 0
-    # Override everything if a player wins. 
-    # If blue wins, force to a 1. Likewise, 0 for red
-    # The crux of the training process!
-    b0 = b0.at[i,j].set(
-      jnp.where(
-        hex.check_win(next_game_state, color),
-        hex.next_color(color),
-        b0[i,j]
-      )
+
+    # Check for a losing state
+    # Override anything the AI comes up with
+    r = jnp.where(
+      hex.check_win(game_state, hex.next_color(color)),
+      color,
+      r
     )
-    return b0
+    # Penalize invalid moves as harshly as losing moves
+    r = jnp.where(
+      hex.check_free(game_state, i, j),
+      r,
+      color
+    )
+    return r
+
+
   #end superAI_prediction
 
-  s_predicted_probabilities = jax.lax.fori_loop(
-    0, hex.board_size**2,
-    calculate_SuperAI_prediction,
-    s_predicted_probabilities
-  )
+  
+
+  # s_predicted_probabilities = jax.lax.fori_loop(
+  #   0, hex.board_size**2,
+  #   calculate_SuperAI_prediction,
+  #   s_predicted_probabilities
+  # )
   # End iterating over all cells
+
+  sAI_batch = jax.vmap(calculate_SuperAI_prediction)
+  s_predicted_probabilities = sAI_batch(jnp.arange(hex.board_size ** 2)).reshape((hex.board_size, hex.board_size))
 
   return s_predicted_probabilities
 # end super_AI
@@ -213,11 +195,23 @@ def estimate_best_move(
   current_board_state: jnp.ndarray,
   current_turn_color: jnp.unsignedinteger
 ) -> Tuple:
-  predicted_probabilities = predict_probability(
+
+
+  predicted_probabilities = predict_raw_probability(
     network_parameters,
-    current_board_state,
-    current_turn_color,
+    current_board_state
   )
+
+  # If red is playing, subtract from one so we're always trying to maximize the score
+  predicted_probabilities = jnp.where(
+    current_turn_color,
+    jnp.subtract(1, predicted_probabilities),
+    predicted_probabilities
+    )
+
+  # filter illegal moves
+  predicted_probabilities = filter_illegal_moves(current_board_state, predicted_probabilities)
+
   # Without any illegal move, now try to find the most ideal one
   index = predicted_probabilities.argmax()
   index_unraveled = jnp.unravel_index(index, predicted_probabilities.shape)
