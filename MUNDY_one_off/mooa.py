@@ -14,6 +14,7 @@ from time import time
 from functools import partial
 import pickle
 import hex
+from multiprocessing import Pool
 
 
 
@@ -114,7 +115,7 @@ def predict_probability(
 
 
 
-@partial(jax.jit, static_argnames=['level'])
+#@partial(jax.jit, static_argnames=['level'])
 def super_AI(
     current_network_parameters: hk.Params,
     game_state: jnp.ndarray, 
@@ -156,7 +157,7 @@ def super_AI(
     # Let the super AI think through the next move
     next_game_state = hex.place_piece(game_state, i, j, color)
     if level > 0:
-      s_a_predicted_probabilities, s_s_predicted_probabilities = super_AI(current_network_parameters, next_game_state, hex.next_color(color), level-1)
+      s_s_predicted_probabilities = super_AI(current_network_parameters, next_game_state, hex.next_color(color), level-1)
       b0 = b0.at[i,j].set(
         jnp.where(
           color,
@@ -195,14 +196,13 @@ def super_AI(
   )
   # End iterating over all cells
 
-  return a_predicted_probabilities, s_predicted_probabilities
+  return s_predicted_probabilities
 # end super_AI
 
 # Try out the super AI
 # b = hex.new_game_state()
 # network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
 # print(super_AI(network_parameters, b, 0))
-
 
 
 def estimate_best_move(
@@ -308,6 +308,8 @@ def train_me(
   evaluate=False
 ) -> hk.Params:
 
+  batch_size = 1000
+
   @partial(jax.jit, static_argnums=(1,))
   def generate_turn_batch(random_key, batch_size = 500):
     batch = jnp.tile(hex.new_game_state(), (batch_size*2,1,1,1))
@@ -353,9 +355,9 @@ def train_me(
   # end generate_turn_batch
 
   @jax.jit
-  def loss(params: hk.Params, batch: jnp.ndarray):
+  def loss(params: hk.Params, inputs: jnp.ndarray, expected_outputs: jnp.ndarray):
     '''
-    Sum-squared difference
+    Sum-squared difference of expected values and predicted ones
 
     Batch: 
       0-predicted 1-expected
@@ -364,58 +366,59 @@ def train_me(
             game_state columns
     For example, a 9-size board has the batch shape (2,81,9,9)
     '''
-    # For each index i between 0 and the batch size
-    def bf(i, l):
-      predicted, expected = super_AI(params,batch[i],i%2)
-      l = l + jnp.sum(
-          jnp.square(
-            jnp.subtract(
-              predicted,
-              expected
-            )
-          )
+
+    predict_raw_probabilities = jax.vmap(lambda gs: predict_raw_probability(params, gs))
+
+    predicted_vals = predict_raw_probabilities(inputs)
+
+    return jnp.sum(
+      jnp.square(
+        jnp.subtract(
+          expected_outputs,
+          predicted_vals
         )
-      return l
-    # end bf
-
-
-    l = jax.lax.fori_loop(
-      0, len(batch),
-      bf,
-      0
+      )
     )
-    return l
   # end loss
 
   @jax.jit
   def update(
       params: hk.Params,
       opt_state: optax.OptState,
-      batch: jnp.ndarray
+      inputs: jnp.ndarray,
+      expected_outputs: jnp.ndarray,
   ) -> Tuple[hk.Params, optax.OptState]:
     """Learning rule (stochastic gradient descent)."""
-    grads = jax.grad(loss)(params, batch)
+    grads = jax.grad(loss)(params, inputs, expected_outputs)
     r = opt.update(grads, opt_state)
     updates, opt_state = r
     new_params = optax.apply_updates(params, updates)
     return new_params, opt_state
   # end update
 
-  # Training
+  # Training data
   random_key = jax.random.PRNGKey(int(time()))
-  batch = generate_turn_batch(random_key)
-  next_network_parameters, next_opt_state = update(
-    current_network_parameters,
-    current_opt_state,
-    batch
-  )
+  inputs = generate_turn_batch(random_key, batch_size)
+  turn_colors = jnp.tile(jnp.array([0,1]), (batch_size))
+  super_AI_batch = jax.vmap(lambda i, c: super_AI(current_network_parameters, i, c))
+  expected_outputs = super_AI_batch(inputs, turn_colors)
+  
 
   # Evaluation
   if evaluate:
     random_key = jax.random.PRNGKey(int(time()))
-    batch = generate_turn_batch(random_key, batch_size=50)
-    print("Loss: %f" % (loss(current_network_parameters, batch)))
+    print("Loss: %f" % (loss(current_network_parameters, inputs, expected_outputs)))
   # end evaluation
+
+
+  # Training
+  next_network_parameters, next_opt_state = update(
+    current_network_parameters,
+    current_opt_state,
+    inputs,
+    expected_outputs
+  )
+
 
   return next_network_parameters, next_opt_state
 # end train_me
@@ -442,7 +445,7 @@ def main(_):
     print("Iteration %d" % iterations)
     network_parameters, opt_state = train_me(network_parameters, opt, opt_state, iterations%10 == 2)
     # Save the model for further analysis later
-    save_model()
+    save_model(network_parameters)
 
 
 ###################################  END MAIN   #########################################
