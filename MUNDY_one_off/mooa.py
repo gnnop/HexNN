@@ -290,7 +290,7 @@ def train_me(
   evaluate=False
 ) -> hk.Params:
 
-  batch_size = 1000
+  batch_size = 500
 
   @jax.jit
   def generate_turn_batch(random_key):
