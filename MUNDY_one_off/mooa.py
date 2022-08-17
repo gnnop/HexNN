@@ -18,7 +18,7 @@ from multiprocessing import Pool
 
 
 
-#jax.config.update('jax_platform_name', 'cpu')
+jax.config.update('jax_platform_name', 'cpu')
 
 def timer_func(func):
     # This function shows the execution time of
@@ -71,7 +71,6 @@ def save_model(network_parameters: hk.Params, filename: str = 'trained-model.dat
     pickle.dump(network_parameters, file)
     file.close()
 
-
 def predict_raw_probability(
   network_parameters: hk.Params,
   current_board_state: jnp.ndarray,
@@ -105,7 +104,7 @@ def super_AI(
     current_network_parameters: hk.Params,
     game_state: jnp.ndarray, 
     color: jnp.unsignedinteger, 
-    level=2):
+    level=1):
   '''
   Creates a super powerful version of the AI,
   which is most likely still dumb
@@ -178,7 +177,6 @@ def super_AI(
 # network_parameters = net.init(jax.random.PRNGKey(int(time())), b)
 # print(super_AI(network_parameters, b, 0))
 
-
 def estimate_best_move(
   network_parameters: hk.Params,
   current_board_state: jnp.ndarray,
@@ -213,8 +211,6 @@ def estimate_best_move(
 # print(estimate_best_move(network_parameters, b, 0))
 
 
-
-@jax.jit
 def make_best_move(
   current_network_parameters: hk.Params,
   current_board_state: jnp.ndarray,
@@ -296,8 +292,8 @@ def train_me(
 
   batch_size = 1000
 
-  @partial(jax.jit, static_argnums=(1,))
-  def generate_turn_batch(random_key, batch_size = 500):
+  @jax.jit
+  def generate_turn_batch(random_key):
     batch = jnp.tile(hex.new_game_state(), (batch_size*2,1,1,1))
     def body_function(i, a):
       '''
@@ -336,7 +332,6 @@ def train_me(
       (batch, random_key)
     )
     new_batch = r[0]
-    new_key = r[1]
     return jnp.asarray(new_batch)
   # end generate_turn_batch
 
@@ -384,7 +379,7 @@ def train_me(
 
   # Training data
   random_key = jax.random.PRNGKey(int(time()))
-  inputs = generate_turn_batch(random_key, batch_size)
+  inputs = generate_turn_batch(random_key)
   turn_colors = jnp.tile(jnp.array([0,1]), (batch_size))
   super_AI_batch = jax.vmap(lambda i, c: super_AI(current_network_parameters, i, c))
   expected_outputs = super_AI_batch(inputs, turn_colors)
@@ -392,7 +387,6 @@ def train_me(
 
   # Evaluation
   if evaluate:
-    random_key = jax.random.PRNGKey(int(time()))
     print("Loss: %f" % (loss(current_network_parameters, inputs, expected_outputs)))
   # end evaluation
 
