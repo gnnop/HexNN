@@ -117,12 +117,6 @@ def super_AI(
   s_ super AI
   '''
 
-  a_predicted_probabilities = predict_raw_probability( # average predicted probabilities
-    current_network_parameters,
-    game_state
-  )
-
-  s_predicted_probabilities = a_predicted_probabilities # super predicted probabilites
   # Compute the super AI's predicted probabilites
   # This is dumb; just a few layers of BFS in the game tree
   # Overridden by checking for winning game states
@@ -132,29 +126,32 @@ def super_AI(
     '''
     j, i = jnp.unravel_index(index, (hex.board_size, hex.board_size))
 
-    r = 0
 
     # Let the super AI think through the next move
+    next_game_state = hex.place_piece(game_state, i, j, color)
+    next_color = hex.next_color(color)
     if level > 0:
-      next_game_state = hex.place_piece(game_state, i, j, color)
-      s_s_predicted_probabilities = super_AI(current_network_parameters, next_game_state, hex.next_color(color), level-1)
-      r = jnp.where(
-        color,
-        jnp.max(
-            s_s_predicted_probabilities
-          ),
-        jnp.min(
-            s_s_predicted_probabilities
-          ) # min
-      ) # where
+      s_s_predicted_probabilities = super_AI(current_network_parameters, next_game_state, next_color, level-1)
     else:
-      r = s_predicted_probabilities
-    #end if level > 0
+      s_s_predicted_probabilities = predict_raw_probability(
+        current_network_parameters,
+        game_state
+      )
+
+    r = jnp.where(
+      color,
+      jnp.max(
+          s_s_predicted_probabilities
+        ),
+      jnp.min(
+          s_s_predicted_probabilities
+        )
+    ) # where
 
     # Check for a losing state
     # Override anything the AI comes up with
     r = jnp.where(
-      hex.check_win(game_state, hex.next_color(color)),
+      hex.check_win(next_game_state, next_color),
       color,
       r
     )
@@ -169,16 +166,8 @@ def super_AI(
 
   #end superAI_prediction
 
-  
-
-  # s_predicted_probabilities = jax.lax.fori_loop(
-  #   0, hex.board_size**2,
-  #   calculate_SuperAI_prediction,
-  #   s_predicted_probabilities
-  # )
-  # End iterating over all cells
-
   sAI_batch = jax.vmap(calculate_SuperAI_prediction)
+  # super predicted probabilites
   s_predicted_probabilities = sAI_batch(jnp.arange(hex.board_size ** 2)).reshape((hex.board_size, hex.board_size))
 
   return s_predicted_probabilities
