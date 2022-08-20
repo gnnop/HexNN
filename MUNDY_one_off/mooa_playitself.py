@@ -10,8 +10,8 @@ m_u = mooa.load_model('untrained-model.dat')
 
 
 def print_predicted_game_state(game_state: jnp.ndarray, color, highlight = None):
-  predicted = mooa.super_AI(m_t, game_state, color)
-  #predicted = mooa.predict_raw_probability(m_t, game_state, color)
+  #predicted = mooa.super_AI(m_t, game_state, color)
+  predicted = mooa.predict_raw_probability(m_t, game_state, color)
   # top red bar
   s = "" # the string to print
   s += colorama.Fore.RED + '--'*(hex.board_size*2+1) + colorama.Fore.RESET + '\n'

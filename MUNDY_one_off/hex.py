@@ -57,6 +57,7 @@ def next_color(color):
   return (color+1)%2
 
 
+
 def print_game_state(game_state: jnp.ndarray):
   # top red bar
   s = "" # the string to print
@@ -83,4 +84,3 @@ def print_game_state(game_state: jnp.ndarray):
 # end print_game_state
 
 ################################## END Game Mechanics ###################################
-

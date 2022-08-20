@@ -159,7 +159,7 @@ def super_AI(
     r = jnp.where(
       hex.check_free(game_state, i, j),
       r,
-      1
+      0
     )
     return r
 
