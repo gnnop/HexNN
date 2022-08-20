@@ -41,10 +41,12 @@ def net_fn(game_state: jnp.ndarray):
   num_spots = size*size
   mlp = hk.Sequential([
       hk.Flatten(),
-      hk.Linear(num_spots*2), jax.nn.relu,
-      hk.Linear(num_spots),   jax.nn.relu,
-      hk.Linear(num_spots),   jax.nn.relu,
-      hk.Linear(num_spots),   jax.nn.sigmoid,
+      hk.Bias(),
+      hk.Linear(num_spots*2), jax.nn.leaky_relu,
+      hk.Linear(num_spots),   jax.nn.leaky_relu,
+      hk.Linear(num_spots),   jax.nn.leaky_relu,
+      hk.Linear(num_spots),   jax.nn.leaky_relu,
+      hk.Bias(),
       hk.Reshape((size,size))
   ])
   return mlp(x)
@@ -58,9 +60,9 @@ def load_model(filename: str = 'trained-model.dat') -> hk.Params:
     network_parameters = pickle.load(open(filename, 'rb'))
     print("Loaded!")
   except Exception as e:
-    print("Error!")
-    print("Warning: unable to open saved parameters")
+    print("Warning: ", end='')
     print(e)
+    print("Generated random parameters")
   print(net)
   return network_parameters
 
@@ -74,16 +76,20 @@ def save_model(network_parameters: hk.Params, filename: str = 'trained-model.dat
 def predict_raw_probability(
   network_parameters: hk.Params,
   current_board_state: jnp.ndarray,
+  reverse: jnp.unsignedinteger = 0
 ) -> np.ndarray:
   '''
   Finds what the AI thinks the probabilities of players winning are
-  0 -> Red wins
-  1 -> Blue wins
+  0 -> The opponent wins
+  1 -> I win
 
   Good for training
   '''
-  predicted_probabilities = net.apply(network_parameters, current_board_state)
-  predicted_probabilities = predicted_probabilities[0]
+  predicted_probabilities = jnp.where(reverse,
+    hex.swap(net.apply(network_parameters, hex.swap(current_board_state))[0]),
+             net.apply(network_parameters,          current_board_state) [0]
+  )
+    
   return predicted_probabilities
 # end predict_raw_probability
 
@@ -134,31 +140,26 @@ def super_AI(
     else:
       s_s_predicted_probabilities = predict_raw_probability(
         current_network_parameters,
-        game_state
+        next_game_state,
+        next_color
       )
 
-    r = jnp.where(
-      color,
-      jnp.max(
-          s_s_predicted_probabilities
-        ),
-      jnp.min(
+    r = 1.0-jnp.max(
           s_s_predicted_probabilities
         )
-    ) # where
 
     # Check for a losing state
     # Override anything the AI comes up with
     r = jnp.where(
       hex.check_win(next_game_state, next_color),
-      color,
+      0,
       r
     )
     # Penalize invalid moves as harshly as losing moves
     r = jnp.where(
       hex.check_free(game_state, i, j),
       r,
-      color
+      1
     )
     return r
 
@@ -186,15 +187,9 @@ def estimate_best_move(
 
   predicted_probabilities = predict_raw_probability(
     network_parameters,
-    current_board_state
+    current_board_state,
+    current_turn_color
   )
-
-  # If red is playing, subtract from one so we're always trying to maximize the score
-  predicted_probabilities = jnp.where(
-    current_turn_color,
-    jnp.subtract(1, predicted_probabilities),
-    predicted_probabilities
-    )
 
   # filter illegal moves
   predicted_probabilities = filter_illegal_moves(current_board_state, predicted_probabilities)
@@ -215,7 +210,7 @@ def make_best_move(
   current_network_parameters: hk.Params,
   current_board_state: jnp.ndarray,
   current_turn_color: jnp.unsignedinteger
-) -> jnp.ndarray:
+) -> Mapping[jnp.ndarray, Tuple]:
   '''
   Uses best_move to determine the best move for a certain color.
   Makes that move and returns the new game state.
@@ -230,7 +225,7 @@ def make_best_move(
     hex.place_blue_piece(current_board_state, current_best_move[0], current_best_move[1])
   )
 
-  return next_board_state
+  return next_board_state, current_best_move
 # end make_best_move
 
 
@@ -290,9 +285,10 @@ def train_me(
   evaluate=False
 ) -> hk.Params:
 
-  batch_size = 500
+  batch_size = 250
 
   @jax.jit
+  # TODO the bottleneck?
   def generate_turn_batch(random_key):
     batch = jnp.tile(hex.new_game_state(), (batch_size*2,1,1,1))
     def body_function(i, a):
@@ -300,34 +296,46 @@ def train_me(
       a0: batch
       a1: random key
       '''
-      b, rk = a
-      gs=b[i]
+      gsb, rk = a
+      gs0=gsb[i*2-1]
 
       # Get a random position
-      x, y = jax.random.randint(rk, shape=(2,), minval=0, maxval=hex.board_size, dtype=jnp.uint8); k, rk = jax.random.split(rk)
+      probs = jnp.add( predict_raw_probability(current_network_parameters, gs0),
+                       jax.random.uniform(rk, shape=(hex.board_size, hex.board_size), dtype=jnp.float32, minval=-.1, maxval=.1)
+      ); k, rk = jax.random.split(rk) # TODO generate random values beforehand for performance boost?
+      probs = filter_illegal_moves(gs0, probs)
+      index = probs.argmax()
+      x, y = jnp.unravel_index(index, probs.shape)
       # Place a blue piece at that random position
       gs1 = jnp.where(
-        hex.check_win(gs, 0),
+        hex.check_win(gs0, 0),
         hex.new_game_state(),
-        hex.place_blue_piece(gs,x,y) 
+        hex.place_blue_piece(gs0,x,y) 
       )
 
       
       # Get a random position
-      x, y = jax.random.randint(rk, shape=(2,), minval=0, maxval=hex.board_size, dtype=jnp.uint8); k, rk = jax.random.split(rk)
+      probs = jnp.add( predict_raw_probability(current_network_parameters, gs0),
+                       jax.random.uniform(rk, shape=(hex.board_size, hex.board_size), dtype=jnp.float32, minval=-.1, maxval=.1)
+      ); k, rk = jax.random.split(rk) # TODO generate random values beforehand for performance boost?
+      probs = filter_illegal_moves(gs1, probs)
+      index = probs.argmax()
+      x, y = jnp.unravel_index(index, probs.shape)
       # Place a red piece at that position
       gs2 = jnp.where(
         hex.check_win(gs1, 1),
         hex.new_game_state(),
         hex.place_red_piece(gs1,x,y) 
       )
-      b.at[i*2].set(gs1)
-      b.at[i*2+1].set(gs2)
-      return (b, rk)
+      b0 = gsb
+      b0 = b0.at[i*2].set(gs1)
+      b0 = b0.at[i*2+1].set(gs2)
+      b1 = rk
+      return (b0, b1)
     # end body_function
     # fori_loop prevents loop unrolling (a default feature in JAX)
     r = jax.lax.fori_loop(
-      0, batch_size,
+      1, batch_size,
       body_function,
       (batch, random_key)
     )
@@ -336,7 +344,7 @@ def train_me(
   # end generate_turn_batch
 
   @jax.jit
-  def loss(params: hk.Params, inputs: jnp.ndarray, expected_outputs: jnp.ndarray):
+  def loss(params: hk.Params, inputs: jnp.ndarray):
     '''
     Sum-squared difference of expected values and predicted ones
 
@@ -348,10 +356,16 @@ def train_me(
     For example, a 9-size board has the batch shape (2,81,9,9)
     '''
 
-    predict_raw_probabilities = jax.vmap(lambda gs: predict_raw_probability(params, gs))
+    # Predicted outputs
+    turn_colors = jnp.tile(jnp.array([0,1]), (batch_size))
+    predict_raw_probabilities = jax.vmap(lambda gs, tc: predict_raw_probability(params, gs, tc))
+    predicted_vals = predict_raw_probabilities(inputs, turn_colors)
 
-    predicted_vals = predict_raw_probabilities(inputs)
+    # Expected outputs
+    super_AI_batch = jax.vmap(lambda gs, tc: super_AI(current_network_parameters, gs, tc))
+    expected_outputs = super_AI_batch(inputs, turn_colors)
 
+    # 
     return jnp.sum(
       jnp.square(
         jnp.subtract(
@@ -367,10 +381,9 @@ def train_me(
       params: hk.Params,
       opt_state: optax.OptState,
       inputs: jnp.ndarray,
-      expected_outputs: jnp.ndarray,
   ) -> Tuple[hk.Params, optax.OptState]:
     """Learning rule (stochastic gradient descent)."""
-    grads = jax.grad(loss)(params, inputs, expected_outputs)
+    grads = jax.grad(loss)(params, inputs)
     r = opt.update(grads, opt_state)
     updates, opt_state = r
     new_params = optax.apply_updates(params, updates)
@@ -380,14 +393,11 @@ def train_me(
   # Training data
   random_key = jax.random.PRNGKey(int(time()))
   inputs = generate_turn_batch(random_key)
-  turn_colors = jnp.tile(jnp.array([0,1]), (batch_size))
-  super_AI_batch = jax.vmap(lambda i, c: super_AI(current_network_parameters, i, c))
-  expected_outputs = super_AI_batch(inputs, turn_colors)
   
 
   # Evaluation
   if evaluate:
-    print("Loss: %f" % (loss(current_network_parameters, inputs, expected_outputs)))
+    print("Loss: %f" % (loss(current_network_parameters, inputs)))
   # end evaluation
 
 
@@ -395,8 +405,7 @@ def train_me(
   next_network_parameters, next_opt_state = update(
     current_network_parameters,
     current_opt_state,
-    inputs,
-    expected_outputs
+    inputs
   )
 
 

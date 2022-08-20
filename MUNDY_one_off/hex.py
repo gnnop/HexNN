@@ -51,9 +51,11 @@ def swap(game_state: jnp.ndarray):
   t = game_state[1]
   game_state = game_state.at[1].set(game_state[0])
   game_state = game_state.at[0].set(t)
+  return game_state
 
 def next_color(color):
   return (color+1)%2
+
 
 def print_game_state(game_state: jnp.ndarray):
   # top red bar
