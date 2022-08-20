@@ -24,7 +24,7 @@ def print_predicted_game_state(game_state: jnp.ndarray, color, highlight = None)
     for j in range(hex.board_size):
       character = "{:02d}".format(int(predicted[i][j]*100))
       if highlight and highlight == (j,i):
-        character = colorama.Back.YELLOW + character + colorama.Back.RESET
+        character = colorama.Back.WHITE + character + colorama.Back.RESET
       if game_state[0][i][j]==0:
         character = colorama.Fore.BLUE+character+colorama.Fore.RESET
       elif game_state[1][j][i]==0:

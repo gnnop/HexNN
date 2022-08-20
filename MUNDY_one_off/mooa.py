@@ -277,18 +277,16 @@ def play_benchmark(
 #   print_game_state(s)
 
 ###############################   TRAINING    #####################################
-@timer_func
 def train_me(
   current_network_parameters: hk.Params,
   opt: optax.GradientTransformation,
-  current_opt_state: optax.OptState,
-  evaluate=False
-) -> hk.Params:
+  current_opt_state: optax.OptState
+):
 
-  batch_size = 250
+  batch_size = 150
 
-  @jax.jit
   # TODO the bottleneck?
+  @jax.jit
   def generate_turn_batch(random_key):
     batch = jnp.tile(hex.new_game_state(), (batch_size*2,1,1,1))
     def body_function(i, a):
@@ -393,13 +391,8 @@ def train_me(
   # Training data
   random_key = jax.random.PRNGKey(int(time()))
   inputs = generate_turn_batch(random_key)
-  
 
-  # Evaluation
-  if evaluate:
-    print("Loss: %f" % (loss(current_network_parameters, inputs)))
-  # end evaluation
-
+  current_loss = loss(current_network_parameters, inputs)
 
   # Training
   next_network_parameters, next_opt_state = update(
@@ -409,7 +402,7 @@ def train_me(
   )
 
 
-  return next_network_parameters, next_opt_state
+  return next_network_parameters, next_opt_state, current_loss
 # end train_me
 
 
@@ -431,8 +424,12 @@ def main(_):
   iterations=0
   while True:
     iterations += 1
-    print("Iteration %d" % iterations)
-    network_parameters, opt_state = train_me(network_parameters, opt, opt_state, iterations%10 == 2)
+    
+    t1 = time()
+    network_parameters, opt_state, current_loss = train_me(network_parameters, opt, opt_state)
+    t2 = time()
+
+    print("Iteration %d: Time=%f, Loss=%f" % (iterations, t2-t1, current_loss))
     # Save the model for further analysis later
     save_model(network_parameters)
 
