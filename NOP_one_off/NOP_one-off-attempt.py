@@ -2,7 +2,7 @@ from cProfile import label
 from doctest import master
 from math import gamma
 from typing import Iterator, Mapping, Tuple
-
+from os.path import exists
 from absl import app
 import haiku as hk
 import jax
@@ -306,26 +306,36 @@ def main(_):
 
   grabAI = params
 
+  if exists("partial_training.params"):
+    with open('partial_training.params', 'rb') as file:
+      params = pickle.load(file)
+
   # Train/eval loop.
-  for step in range(10001):
-    if step % 100 == 0:
-      print(step)
-    if step % 300 == 0:
-      # Periodically evaluate classification accuracy on train & test sets.
-      oldScore, newScore = compareAI(grabAI, params)
-      print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
-      grabAI = copy.deepcopy(params)
+  try:
+    for step in range(10001):
+      if step % 100 == 0:
+        print(step)
+      if step % 300 == 0:
+        # Periodically evaluate classification accuracy on train & test sets.
+        oldScore, newScore = compareAI(grabAI, params)
+        print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
+        grabAI = copy.deepcopy(params)
 
-    # Do SGD on a batch of training examples.
+      # Do SGD on a batch of training examples.
 
-    pool = ThreadPool(20)
-    master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
+      pool = ThreadPool(20)
+      master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
 
-    flat_list_data = [item for sublist in master_list for item in sublist[0]]
-    flat_list_label = [item for sublist in master_list for item in sublist[1]]
-    
-    val, params, opt_state = update(params, opt_state, flat_list_data, flat_list_label)
-    print(val)
+      flat_list_data = [item for sublist in master_list for item in sublist[0]]
+      flat_list_label = [item for sublist in master_list for item in sublist[1]]
+      
+      val, params, opt_state = update(params, opt_state, flat_list_data, flat_list_label)
+      print(val)
+  except KeyboardInterrupt:
+    file = open('partial_training.params', 'wb')
+    pickle.dump(params, file)
+    file.close()
+    exit()
 
   file = open('trained-model.params', 'wb')
   pickle.dump(params, file)
