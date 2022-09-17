@@ -19,15 +19,16 @@ import colorama
 
 #First I'm going to start with an 8 by 8 board:
 
-hexDims = 8
 
 @dataclass
 class tictactoe:
-  board: np.array = np.array([0 for i in range(9 + 1)])
+  # board = np.array([0,0,0, 0,0,0, 0,0,0, 1])
+  def __init__(self):
+    self.board = np.array([0,0,0, 0,0,0, 0,0,0, 1])
 
   def takeTurn(self, i):
     if self.board[i] == 0:
-      self.board[i] = self.hexes[self.board[9]]
+      self.board[i] = self.board[9]
       self.board[9] *= -1
       return True
     else:
@@ -35,18 +36,18 @@ class tictactoe:
   
   def convertNumToChar(self, num):
     if num == 0:
-      return "-"
+      return " "
     elif num == -1:
       return "X"
     elif num == 1:
       return "O"
 
   def displayGame(self):
-    s = self.convertNumToChar(self.board[0]) + "|" + self.convertNumToChar(self.board[1]) + "|" + self.convertNumToChar(self.board[2])
-    s+= "\n_____\n"
+    s = "\n" + self.convertNumToChar(self.board[0]) + "|" + self.convertNumToChar(self.board[1]) + "|" + self.convertNumToChar(self.board[2])
+    s+= "\n------\n"
     s+= self.convertNumToChar(self.board[3]) + "|" + self.convertNumToChar(self.board[4]) + "|" + self.convertNumToChar(self.board[5])
-    s+= "\n_____\n"
-    s+= self.convertNumToChar(self.board[6]) + "|" + self.convertNumToChar(self.board[7]) + "|" + self.convertNumToChar(self.board[8])
+    s+= "\n------\n"
+    s+= self.convertNumToChar(self.board[6]) + "|" + self.convertNumToChar(self.board[7]) + "|" + self.convertNumToChar(self.board[8]) + "\n"
     print(s)
   
   def getTurn(self):
@@ -61,8 +62,12 @@ class tictactoe:
          i == self.board[1] == self.board[4] == self.board[7] or
          i == self.board[2] == self.board[5] == self.board[8] or
          i == self.board[0] == self.board[4] == self.board[8] or
-         i == self.board[2] == self.board[4] == self.board[7]):
+         i == self.board[2] == self.board[4] == self.board[6]):
         return i
+    for i in range(9):
+      if self.board[i] == 0:
+        return -2
+
     return 0
 
 
@@ -89,7 +94,7 @@ def net_fn(batch: Batch) -> jnp.ndarray:
       hk.Linear(300), jax.nn.relu,
       hk.Linear(300), jax.nn.relu,
       hk.Linear(100), jax.nn.relu,
-      hk.Linear(20), jax.nn.relu,
+      hk.Linear(20),
       hk.Linear(1)
   ])
   #convolutional network
@@ -120,7 +125,6 @@ def main(_):
   #I believe what I'll do for now is to evaluate an entire game tree and look at all states along that tree.
 
   def compareAI(aiOne, aiTwo):
-    global hexDims
     aiOneScore = 0
     aiTwoScore = 0
     print("evaluating AIs")
@@ -134,15 +138,16 @@ def main(_):
         negOnePlayer = aiOne
       
       #Do the first turn so results aren't even
-      hexgame.takeTurn(random.randrange(0, hexDims ** 2))
+      hexgame.takeTurn(random.randrange(0, 9))
       
-      
-      while hexgame.checkGameWin() == 0:
+
+      while hexgame.checkGameWin() == -2:
         if pp == 0:
+          print("displaying game")
           hexgame.displayGame()
         boards = []
         gamestates = []
-        for i in range(hexDims**2):
+        for i in range(9):
           if hexgame.board[i] == 0:
             gamestates.append(i)
             hexgame.board[i] = hexgame.getTurn()
@@ -176,20 +181,19 @@ def main(_):
 
 
   def generateGameBatch(hexgame,params):
-    global hexDims
 
     boards = []
     labels = []
 
     turns = 0
-    while hexgame.checkGameWin() == 0:
+    while hexgame.checkGameWin() == -2:
       turns += 1
       alphaBetaBoards = []
       gameStates = []
 
       for i in range(9):
-        if hexgame.hexes[i] == 0:
-          hexgame.hexes[i] = hexgame.getTurn()#in place modification without changing state
+        if hexgame.board[i] == 0:
+          hexgame.board[i] = hexgame.getTurn()#in place modification without changing state
           gameStates.append(i)
           alphaBetaBoards.append(copy.deepcopy(hexgame.board))
           hexgame.board[i] = 0
@@ -261,16 +265,12 @@ def main(_):
 
   grabAI = params
 
-  if exists("partial_training.params"):
-    with open('partial_training.params', 'rb') as file:
-      params = pickle.load(file)
-
   # Train/eval loop.
   try:
     for step in range(10001):
       if step % 100 == 0:
         print(step)
-      if step % 300 == 0:
+      if step % 30 == 0:
         # Periodically evaluate classification accuracy on train & test sets.
         oldScore, newScore = compareAI(grabAI, params)
         print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
