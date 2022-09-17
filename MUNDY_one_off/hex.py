@@ -4,7 +4,7 @@ import colorama
 
 
 # Game config
-board_size = 9
+board_size = 5
 
 ################################## Game Mechanics ###################################
 def new_game_state() -> jnp.array:

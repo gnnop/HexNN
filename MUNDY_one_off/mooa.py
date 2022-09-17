@@ -44,9 +44,9 @@ def net_fn(game_state: jnp.ndarray):
       hk.Bias(),
       hk.Linear(num_spots*2), jax.nn.leaky_relu,
       hk.Linear(num_spots),   jax.nn.leaky_relu,
-      hk.Linear(num_spots),   jax.nn.leaky_relu,
-      hk.Linear(num_spots),   jax.nn.leaky_relu,
       hk.Bias(),
+      hk.Linear(num_spots),   jax.nn.leaky_relu,
+      hk.Linear(num_spots),   jax.nn.leaky_relu,
       hk.Reshape((size,size))
   ])
   return mlp(x)
@@ -110,7 +110,7 @@ def super_AI(
     current_network_parameters: hk.Params,
     game_state: jnp.ndarray, 
     color: jnp.unsignedinteger, 
-    level=1):
+    level=2):
   '''
   Creates a super powerful version of the AI,
   which is most likely still dumb
@@ -161,7 +161,7 @@ def super_AI(
       r,
       0
     )
-    return r
+    return r # A scalar; how good am I after placing a piece?
 
 
   #end superAI_prediction
