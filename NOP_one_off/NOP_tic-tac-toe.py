@@ -1,6 +1,7 @@
 from cProfile import label
 from doctest import master
 from math import gamma
+from operator import truediv
 from typing import Iterator, Mapping, Tuple
 from os.path import exists
 from absl import app
@@ -13,102 +14,56 @@ import random
 import pickle
 import copy
 from multiprocessing.dummy import Pool as ThreadPool
+from dataclasses import dataclass
 import colorama
 
 #First I'm going to start with an 8 by 8 board:
 
 hexDims = 8
 
-class hexGame():
-    global hexDims #Check if this is legal
-    turnPos = hexDims ** 2
+@dataclass
+class tictactoe:
+  board: np.array = np.array([0 for i in range(9 + 1)])
 
-    """Creates a new game of Hex"""
-    def __init__(self, hexgame=None):
-        global hexDims
+  def takeTurn(self, i):
+    if self.board[i] == 0:
+      self.board[i] = self.hexes[self.board[9]]
+      self.board[9] *= -1
+      return True
+    else:
+      return False
+  
+  def convertNumToChar(self, num):
+    if num == 0:
+      return "-"
+    elif num == -1:
+      return "X"
+    elif num == 1:
+      return "O"
 
-        if hexgame == None:
-          #Note that this is currently optimized for the 8 by 8 board. Very specific
-          self.won = 0
-          self.gameSize = hexDims
-          self.hexes = np.array([0 for i in range(self.gameSize**2 + 1)])
-          self.hexes[self.turnPos] = 1
-          self.hexNeighbors = [[-1, 1], [0, 1], [1, 0], [1, -1], [-1, 0], [0, -1]]
-          self.winArray = [[[(-1, i) for i in range(hexDims)], [(i, -1) for i in range(hexDims)]], [ [0]*hexDims for i in range(hexDims)]]
-          #Red starts. Currently, we have no PI rule, I'm going to introduce that later
-        else:
-          self.won = hexgame.won
-          self.gameSize = hexgame.gameSize
-          self.hexes = copy.deepcopy(hexgame.hexes)
-          self.hexNeighbors = hexgame.hexNeighbors
-          self.winArray = copy.deepcopy(hexgame.winArray)
-
-    def takeTurn(self, x, y): 
-      if self.hexes[self.hexToLine(x, y)] == 0:
-        self.hexes[self.hexToLine(x, y)] = self.hexes[self.turnPos]
-        self.hexes[self.turnPos] *= -1
-        return True
-      else:
-        return False
-
-    def displayGame(self):
-      # top red bar
-      s = "" # the string to print
-      s += colorama.Fore.RED + '-'*(hexDims*2+1) + colorama.Fore.RESET + '\n'
-      for i in range(hexDims):
-        # spacing to line up rows hexagonally
-        s += ' '*i
-        # left blue bar
-        s += colorama.Fore.BLUE + '\\' + colorama.Fore.RESET
-        # print a row of the game state
-        for j in range(hexDims):
-          character = '.'
-          if self.hexes[self.hexToLine(i, j)]==1:
-            character = colorama.Fore.BLUE+'B'+colorama.Fore.RESET
-          elif self.hexes[self.hexToLine(i, j)]==-1:
-            character = colorama.Fore.RED+'R'+colorama.Fore.RESET
-          s += character + ' '
-        # right blue bar and end of row
-        s += colorama.Fore.BLUE + '\\' + colorama.Fore.RESET + '\n'
-      # bottom red bar
-      s += ' '*i + ' '
-      s += colorama.Fore.RED + '-'*(hexDims*2+1) + colorama.Fore.RESET
-      print(s)
-
-    def takeLinTurn(self, x):
-      if self.hexes[x] == 0:
-        self.hexes[x] = self.hexes[self.turnPos]
-        self.hexes[self.turnPos] *= -1
-        return True
-      else:
-        print("BAD!!!")
-        return False
-
-    def getHexTurn(self):
-      return self.hexes[self.turnPos]
-
-    def hexToLine(self, x, y):
-      return self.gameSize * x + y
-
-    def checkGameWin(self):
-      if self.won == 0:
-        for state in [-1, 1]:
-          for loc in self.winArray[0][int((1+state) / 2)]:
-            for k in self.hexNeighbors:
-              if 0 <= loc[0] + k[0] < self.gameSize and 0 <= loc[1] + k[1] < self.gameSize:#add in something to stop checking when filled around
-                if self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] == 0 and self.hexes[self.hexToLine(loc[0] + k[0],loc[1] + k[1])] == state:
-                  self.winArray[0][int((1+state) / 2)].append((loc[0] + k[0], loc[1] + k[1]))
-                  self.winArray[1][loc[0] + k[0]][loc[1] + k[1]] = state
-        for i in range(self.gameSize):
-          if self.winArray[1][i][self.gameSize-1] == 1:
-            self.won = 1
-            return 1
-          if self.winArray[1][self.gameSize - 1][i] == -1:
-            self.won = -1
-            return -1
-        return 0
-      else:
-        return self.won
+  def displayGame(self):
+    s = self.convertNumToChar(self.board[0]) + "|" + self.convertNumToChar(self.board[1]) + "|" + self.convertNumToChar(self.board[2])
+    s+= "\n_____\n"
+    s+= self.convertNumToChar(self.board[3]) + "|" + self.convertNumToChar(self.board[4]) + "|" + self.convertNumToChar(self.board[5])
+    s+= "\n_____\n"
+    s+= self.convertNumToChar(self.board[6]) + "|" + self.convertNumToChar(self.board[7]) + "|" + self.convertNumToChar(self.board[8])
+    print(s)
+  
+  def getTurn(self):
+    return self.board[9]
+  
+  def checkGameWin(self):
+    for i in [-1, 1]:
+      if (i == self.board[0] == self.board[1] == self.board[2] or
+         i == self.board[3] == self.board[4] == self.board[5] or
+         i == self.board[6] == self.board[7] == self.board[8] or
+         i == self.board[0] == self.board[3] == self.board[6] or
+         i == self.board[1] == self.board[4] == self.board[7] or
+         i == self.board[2] == self.board[5] == self.board[8] or
+         i == self.board[0] == self.board[4] == self.board[8] or
+         i == self.board[2] == self.board[4] == self.board[7]):
+        return i
+    return 0
 
 
 Batch = Mapping[str, np.ndarray]
@@ -152,11 +107,6 @@ def net_fn(batch: Batch) -> jnp.ndarray:
 
   return mlp(x)
 
-def branchingGame(node):
-  #When generating the game summary in order to determine the branching
-
-  
-  return 1
 
 def main(_):
   # Make the network and optimiser.
@@ -175,7 +125,7 @@ def main(_):
     aiTwoScore = 0
     print("evaluating AIs")
     for pp in range(10):
-      hexgame = hexGame()
+      hexgame = tictactoe()
       if pp % 2 == 0:
         firstPlayer = aiOne
         negOnePlayer = aiTwo
@@ -184,7 +134,7 @@ def main(_):
         negOnePlayer = aiOne
       
       #Do the first turn so results aren't even
-      hexgame.takeLinTurn(random.randrange(0, hexDims ** 2))
+      hexgame.takeTurn(random.randrange(0, hexDims ** 2))
       
       
       while hexgame.checkGameWin() == 0:
@@ -193,20 +143,20 @@ def main(_):
         boards = []
         gamestates = []
         for i in range(hexDims**2):
-          if hexgame.hexes[i] == 0:
+          if hexgame.board[i] == 0:
             gamestates.append(i)
-            hexgame.hexes[i] = hexgame.getHexTurn()
-            boards.append(copy.deepcopy(hexgame.hexes))
-            hexgame.hexes[i] = 0
+            hexgame.board[i] = hexgame.getTurn()
+            boards.append(copy.deepcopy(hexgame.board))
+            hexgame.board[i] = 0
           
-        if hexgame.getHexTurn() == 1:
+        if hexgame.getTurn() == 1:
           preds = net.apply(firstPlayer, jnp.array(boards))
           val = jnp.max(preds)
         else:
           preds = net.apply(negOnePlayer, jnp.array(boards))
           val = jnp.min(preds)
         
-        hexgame.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
+        hexgame.takeTurn(gamestates[jnp.where(preds == val)[0][0]])
       
       if pp == 0:
         print("This player won, blue went first: ", hexgame.checkGameWin())
@@ -237,21 +187,21 @@ def main(_):
       alphaBetaBoards = []
       gameStates = []
 
-      for i in range(hexDims**2):
+      for i in range(9):
         if hexgame.hexes[i] == 0:
-          hexgame.hexes[i] = hexgame.getHexTurn()#in place modification without changing state
+          hexgame.hexes[i] = hexgame.getTurn()#in place modification without changing state
           gameStates.append(i)
-          alphaBetaBoards.append(copy.deepcopy(hexgame.hexes))
-          hexgame.hexes[i] = 0
+          alphaBetaBoards.append(copy.deepcopy(hexgame.board))
+          hexgame.board[i] = 0
       #alpha beta value - the nn returns 
 
       #Now serialize the boards and apply everything:
       ls = net.apply(params, np.array(alphaBetaBoards))
-      if hexgame.getHexTurn() == 1: #simple alpha beta
-        boards.append(copy.deepcopy(hexgame.hexes))
+      if hexgame.getTurn() == 1: #simple alpha beta
+        boards.append(copy.deepcopy(hexgame.board))
         labels.append(jnp.max(ls))
       else:
-        boards.append(copy.deepcopy(hexgame.hexes))
+        boards.append(copy.deepcopy(hexgame.board))
         labels.append(jnp.min(ls))
       
       #make the actual move with some probability:
@@ -259,22 +209,22 @@ def main(_):
       #Use some mix of exploration and the network
       if random.random() < 0.1 and turns < 20:
         num = 0
-        for i in hexgame.hexes:
+        for i in hexgame.board:
           if i == 0:
             num+=1
         pos = random.randrange(0, num)
         num = 0
         absPos = 0
-        for i in hexgame.hexes:
+        for i in hexgame.board:
           if i == 0:
             if pos == num:
-              hexgame.takeLinTurn(absPos)
+              hexgame.takeTurn(absPos)
             num+=1
           absPos+=1
       else:
-        hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+        hexgame.takeTurn(gameStates[np.where(ls == labels[-1])[0][0]])
     
-    boards.append(copy.deepcopy(hexgame.hexes))
+    boards.append(copy.deepcopy(hexgame.board))
     labels.append(hexgame.checkGameWin())
 
     return boards, labels
@@ -306,7 +256,7 @@ def main(_):
     return val, new_params, opt_state
 
   # Initialize network and optimiser; note we draw an input to get shapes.
-  params = net.init(jax.random.PRNGKey(42), jnp.array([hexGame().hexes]))
+  params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().hexes]))
   opt_state = opt.init(params)
 
   grabAI = params
@@ -329,7 +279,7 @@ def main(_):
       # Do SGD on a batch of training examples.
 
       pool = ThreadPool(20)
-      master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
+      master_list = pool.map(lambda a: generateGameBatch(tictactoe(), params), range(20))
 
       flat_list_data = [item for sublist in master_list for item in sublist[0]]
       flat_list_label = [item for sublist in master_list for item in sublist[1]]
