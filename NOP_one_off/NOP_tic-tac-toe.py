@@ -256,7 +256,7 @@ def main(_):
     return val, new_params, opt_state
 
   # Initialize network and optimiser; note we draw an input to get shapes.
-  params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().hexes]))
+  params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().board]))
   opt_state = opt.init(params)
 
   grabAI = params
