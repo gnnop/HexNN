@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
 	def getClick(event):
 		xCell, yCell = grid.convertToGrid(event.x, event.y)
-		if game.checkLegal(xCell, yCell) and game.checkGameWin() == 0:
+		if game.checkLegal(xCell, yCell) and game.checkGameWin() == -2:
 			game.takeTurn(xCell, yCell)
 		
 		grid.drawGame(displayGame)
@@ -224,7 +224,7 @@ if __name__ == "__main__":
 	def motion(event):
 		xCell, yCell = grid.convertToGrid(event.x, event.y)
 		grid.drawGame(displayGame)
-		if game.checkLegal(xCell, yCell) and game.checkGameWin() == 0:
+		if game.checkLegal(xCell, yCell) and game.checkGameWin() == -2:
 			grid.setCell(xCell, yCell, fill='gray')
 
 	grid.bind('<Motion>', motion)

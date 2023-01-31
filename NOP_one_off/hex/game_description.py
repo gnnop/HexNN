@@ -12,7 +12,7 @@ class hexGame():
     """Creates a new game of Hex"""
     def __init__(self):
         global hexDims
-        self.won = 0
+        self.won = -2
         self.gameSize = hexDims
         self.board = np.array([0 for i in range(self.gameSize**2 + 1)])
         self.board[self.turnPos] = 1
@@ -86,7 +86,7 @@ class hexGame():
       return self.gameSize * x + y
 
     def checkGameWin(self):
-      if self.won == 0:
+      if self.won == -2:
         for state in [-1, 1]:
           for loc in self.winArray[0][int((1+state) / 2)]:
             for k in self.hexNeighbors:
@@ -101,6 +101,6 @@ class hexGame():
           if self.winArray[1][self.gameSize - 1][i] == -1:
             self.won = -1
             return -1
-        return 0
+        return -2
       else:
         return self.won

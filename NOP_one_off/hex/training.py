@@ -28,7 +28,7 @@ def main(_):
     aiTwoScore = 0
     print("evaluating AIs")
     for pp in range(10):
-      hexgame = tictactoe()
+      hexgame = hexGame()
       if pp % 2 == 0:
         firstPlayer = aiOne
         negOnePlayer = aiTwo
@@ -37,7 +37,7 @@ def main(_):
         negOnePlayer = aiOne
       
       #Do the first turn so results aren't even
-      hexgame.takeTurn(random.randrange(0, 9))
+      hexgame.takeLinTurn(random.randrange(0, hexgame.getPlayableArea()))
       
 
       while hexgame.checkGameWin() == -2:
@@ -46,7 +46,7 @@ def main(_):
           hexgame.displayGame()
         boards = []
         gamestates = []
-        for i in range(9):
+        for i in range(hexgame.getPlayableArea()):
           if hexgame.board[i] == 0:
             gamestates.append(i)
             hexgame.board[i] = hexgame.getTurn()
@@ -60,7 +60,7 @@ def main(_):
           preds = net.apply(negOnePlayer, jnp.array(boards))
           val = jnp.min(preds)
         
-        hexgame.takeTurn(gamestates[jnp.where(preds == val)[0][0]])
+        hexgame.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
       
       if pp == 0:
         print("This player won, blue went first: ", hexgame.checkGameWin())
@@ -90,7 +90,7 @@ def main(_):
       alphaBetaBoards = []
       gameStates = []
 
-      for i in range(9):
+      for i in range(hexgame.getPlayableArea()):
         if hexgame.board[i] == 0:
           hexgame.board[i] = hexgame.getTurn()#in place modification without changing state
           gameStates.append(i)
@@ -118,11 +118,11 @@ def main(_):
         for i in hexgame.board:
           if i == 0:
             if pos == num:
-              hexgame.takeTurn(absPos)
+              hexgame.takeLinTurn(absPos)
             num+=1
           absPos+=1
       else:
-        hexgame.takeTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+        hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
     
     boards.append(copy.deepcopy(hexgame.board))
     labels.append(hexgame.checkGameWin())
@@ -157,7 +157,7 @@ def main(_):
     print('loaded previous AI')
   except:
     print('previous AI not found. New init being used')
-    params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().board]))
+    params = net.init(jax.random.PRNGKey(42), jnp.array([hexGame().board]))
 
   print(params)
   opt_state = opt.init(params)
@@ -178,7 +178,7 @@ def main(_):
       # Do SGD on a batch of training examples.
 
       pool = ThreadPool(20)
-      master_list = pool.map(lambda a: generateGameBatch(tictactoe(), params), range(50))
+      master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
 
       flat_list_data = (np.array([item for sublist in master_list for item in sublist[0]]))
       flat_list_label = (np.transpose(np.array([[item for sublist in master_list for item in sublist[1]]])))
