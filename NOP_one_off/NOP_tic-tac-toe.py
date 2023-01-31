@@ -80,43 +80,31 @@ Batch = Mapping[str, np.ndarray]
 
 
 
-def net_fn(batch: Batch) -> jnp.ndarray:
-  """Standard LeNet-300-100 MLP network."""
+def net_fn(batch):
   x = batch.astype(jnp.float32)
-
-  #sequential unit
-  #this code is the initial processing
-  mlp = hk.Sequential([
-      hk.Flatten(),
-      hk.Linear(100), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
-      hk.Linear(300), jax.nn.relu,
-      hk.Linear(100), jax.nn.relu,
-      hk.Linear(20),
-      hk.Linear(1)
-  ])
-  #convolutional network
-  #this code convolces everything a couple of times
-  """
-  conv = hk.Sequential([
+  h1 = hk.Sequential([
     hk.Flatten(),
-    hk.Linear()
-  ])"""
+    hk.Linear(100), jax.nn.relu,
+    hk.Linear(300), jax.nn.relu])
+  h2 = hk.Sequential([
+    hk.Linear(300), jax.nn.relu,
+    hk.Linear(300), jax.nn.relu,
+    hk.Linear(300), jax.nn.relu])
+  h3 = hk.Sequential([
+    hk.Linear(300), jax.nn.relu,
+    hk.Linear(100), jax.nn.relu,
+    hk.Linear(20),  hk.Linear(1)])
+  y1 = h1(x)
+  y2 = y1 + h2(y1)
+  y3 = h3(y2)
 
-  #combination network. concatenate previous results
-  #and combine to see what happens.
-  #may switch to attention transformater
-
-
-  return mlp(x)
+  return y3
 
 
 def main(_):
   # Make the network and optimiser.
   net = hk.without_apply_rng(hk.transform(net_fn))
-  opt = optax.adam(1e-3)
+  opt = optax.adam(2e-4)
 
 
   #generating a tree to tranverse. First design is to assign a value to a given game state. What I do then is evaluate all the game states
@@ -233,18 +221,36 @@ def main(_):
 
     return boards, labels
 
+  #Evaluating things twice is going to drop kick the efficiency of my algorithm through the floor, but
+  #I need to be able to see if it can actually learn.
+  @jax.jit
+  def determineLargestDefects(params: hk.Params, batch_data, batch_labels):
+    logits = net.apply(params, jnp.array(batch_data))
+    labels = jnp.array(batch_labels)
+
+    return optax.l2_loss(logits, labels) #jnp.square(logits - labels)#should be an array of indices.
+
+
+  #I don't know how the differentiability works now, so 
+
   # Training loss (cross-entropy).    pool = ThreadPool(40)
   def loss(params: hk.Params, batch_data, batch_labels) -> jnp.ndarray:
     """Compute the loss of the network, including L2."""
     logits = net.apply(params, jnp.array(batch_data))
     labels = jnp.array(batch_labels)
 
+    #I think that the program isn't learning from the end of the game.
+    #So, what I do now is I throw away already learned values, since the end of the game
+    #Is where most of the stuff needs to happen. - learning is unstable
+
+    #external loss - all predictions should be between -1 and 1 or something is wrong:
+    tuning_loss = jnp.sum(jnp.square(jax.nn.relu(jnp.abs(logits) - 1)))
     loss = jnp.sum(jnp.square(logits - labels)) / labels.shape[0]
-    #l2_loss = 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_leaves(params))
+    weight_decay = 0.02 * 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_leaves(params)) / sum(x.size for x in jax.tree_leaves(params))
     #softmax_xent = -jnp.sum(labels * jnp.log(logits))
     #softmax_xent /= labels.shape[0]
 
-    return loss
+    return loss + weight_decay + 5*tuning_loss
 
 
   @jax.jit
@@ -260,7 +266,14 @@ def main(_):
     return val, new_params, opt_state
 
   # Initialize network and optimiser; note we draw an input to get shapes.
-  params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().board]))
+  try:
+    params = pickle.load(open('partial_training.params', 'rb'))
+    print('loaded previous AI')
+  except:
+    print('previous AI not found. New init being used')
+    params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().board]))
+
+  print(params)
   opt_state = opt.init(params)
 
   grabAI = params
@@ -270,31 +283,39 @@ def main(_):
     for step in range(10001):
       if step % 100 == 0:
         print(step)
-      if step % 30 == 0:
+      if step % 30 == 0 and step > 0:
         # Periodically evaluate classification accuracy on train & test sets.
         oldScore, newScore = compareAI(grabAI, params)
         print("The old AI scored " + str(oldScore) + "and the new scored " + str(newScore))
         grabAI = copy.deepcopy(params)
-
+        with open('partial_training.params', 'wb') as file:
+          pickle.dump(params, file)
       # Do SGD on a batch of training examples.
 
       pool = ThreadPool(20)
-      master_list = pool.map(lambda a: generateGameBatch(tictactoe(), params), range(20))
+      master_list = pool.map(lambda a: generateGameBatch(tictactoe(), params), range(50))
 
-      flat_list_data = [item for sublist in master_list for item in sublist[0]]
-      flat_list_label = [item for sublist in master_list for item in sublist[1]]
+      flat_list_data = (np.array([item for sublist in master_list for item in sublist[0]]))
+      flat_list_label = (np.transpose(np.array([[item for sublist in master_list for item in sublist[1]]])))
+
+      #print(flat_list_label.shape)
+      #validation = determineLargestDefects(params, flat_list_data, flat_list_label)
+      #Now, the way we select the most important data is probably important. I think that what needs to
+      #arr = np.argsort(validation)
+      #print(validation.shape)
+      #print(validation[arr[0:10]])
+      
+      #exit()
       
       val, params, opt_state = update(params, opt_state, flat_list_data, flat_list_label)
       print(val)
   except KeyboardInterrupt:
-    file = open('partial_training.params', 'wb')
-    pickle.dump(params, file)
-    file.close()
+    with open('partial_training.params', 'wb') as file:
+      pickle.dump(params, file)
     exit()
 
-  file = open('trained-model.params', 'wb')
-  pickle.dump(params, file)
-  file.close()
+  with open('trained-model.params', 'wb') as file:
+    pickle.dump(params, file)
   print("Bye")
   exit()
 

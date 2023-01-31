@@ -18,7 +18,7 @@ from multiprocessing import Pool
 
 
 
-jax.config.update('jax_platform_name', 'cpu')
+#jax.config.update('jax_platform_name', 'cpu')
 
 def timer_func(func):
     # This function shows the execution time of
