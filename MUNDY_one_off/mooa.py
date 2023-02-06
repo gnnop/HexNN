@@ -18,7 +18,7 @@ from multiprocessing import Pool
 
 
 
-#jax.config.update('jax_platform_name', 'cpu')
+jax.config.update('jax_platform_name', 'cpu')
 
 def timer_func(func):
     # This function shows the execution time of
@@ -39,31 +39,47 @@ def net_fn(game_state: jnp.ndarray):
   x = game_state.astype(jnp.float32)
   size = game_state.shape[1]
   num_spots = size*size
-  mlp = hk.Sequential([
-      hk.Flatten(),
-      hk.Bias(),
-      hk.Linear(num_spots*2), jax.nn.leaky_relu,
-      hk.Linear(num_spots),   jax.nn.leaky_relu,
-      hk.Bias(),
-      hk.Linear(num_spots),   jax.nn.leaky_relu,
-      hk.Linear(num_spots),   jax.nn.leaky_relu,
-      hk.Reshape((size,size))
+  h1 = hk.Sequential([
+    hk.Flatten(),
+    hk.Linear(num_spots*num_spots), jax.nn.relu,
+    hk.Linear(num_spots*num_spots), jax.nn.relu
   ])
-  return mlp(x)
+  h2 = hk.Sequential([
+    hk.Linear(num_spots*num_spots), jax.nn.relu,
+    hk.Linear(num_spots*num_spots), jax.nn.relu
+  ])
+  h3 = hk.Sequential([
+    hk.Linear(num_spots*num_spots), jax.nn.relu,
+    hk.Linear(num_spots*num_spots), jax.nn.relu
+  ])
+  h4 = hk.Sequential([
+    hk.Linear(num_spots*num_spots), jax.nn.relu,
+    hk.Linear(num_spots*10), jax.nn.relu,
+    hk.Linear(num_spots*4), jax.nn.relu,
+    hk.Linear(num_spots*2), jax.nn.relu,
+    hk.Linear(num_spots),
+    hk.Reshape((size,size))
+  ])
+  y1 = h1(x)
+  y2 = y1 + h2(y1)
+  y3 = y2 + h3(y2)
+  y4 = h4(y3)
+  return y4
 
-net = hk.without_apply_rng(hk.transform(net_fn))
+net = hk.transform(net_fn)
 
-def load_model(filename: str = 'trained-model.dat') -> hk.Params:
-  print("Loading MOOA model: %s ... " % filename, end='')
+def load_model(filename: str = 'trained-model.dat', verbose: bool = False) -> hk.Params:
+  if verbose: print("Loading MOOA model: %s ... " % filename, end='')
   network_parameters = net.init(jax.random.PRNGKey(int(time())), hex.new_game_state())
   try:
     network_parameters = pickle.load(open(filename, 'rb'))
-    print("Loaded!")
+    if verbose: print("Loaded!")
   except Exception as e:
-    print("Warning: ", end='')
-    print(e)
-    print("Generated random parameters")
-  print(net)
+    if verbose:
+      print("Warning: ", end='')
+      print(e)
+      print("Generated random parameters")
+  if verbose: print(net)
   return network_parameters
 
 
@@ -86,9 +102,10 @@ def predict_raw_probability(
   Good for training
   '''
   predicted_probabilities = jnp.where(reverse,
-    hex.swap(net.apply(network_parameters, hex.swap(current_board_state))[0]),
-             net.apply(network_parameters,          current_board_state) [0]
+    hex.swap(net.apply(network_parameters,  jax.random.PRNGKey(int(time())), hex.swap(current_board_state))[0]),
+             net.apply(network_parameters,  jax.random.PRNGKey(int(time())), current_board_state          )[0]
   )
+  predicted_probabilities = jnp.multiply(predicted_probabilities, predicted_probabilities)
     
   return predicted_probabilities
 # end predict_raw_probability
@@ -195,7 +212,7 @@ def estimate_best_move(
   predicted_probabilities = filter_illegal_moves(current_board_state, predicted_probabilities)
 
   # Without any illegal move, now try to find the most ideal one
-  index = predicted_probabilities.argmax()
+  index = jnp.abs(predicted_probabilities).argmax()
   index_unraveled = jnp.unravel_index(index, predicted_probabilities.shape)
   return index_unraveled
 # end estimate_best_move
@@ -252,7 +269,7 @@ def play_benchmark(
 
   # fori_loop prevents loop unrolling (a default feature in JAX)
   r = jax.lax.fori_loop(
-    0, 5000, # Each game averages 100 moves on an 11x11 board. It's playing 100 games?!
+    0, 100, # Each game averages 100 moves on an 11x11 board. It's playing 100 games?!
     body_function,
     (current_network_parameters, current_board_state)
   )
@@ -283,7 +300,7 @@ def train_me(
   current_opt_state: optax.OptState
 ):
 
-  batch_size = 150
+  batch_size = 50
 
   # TODO the bottleneck?
   @jax.jit
@@ -413,7 +430,7 @@ def main(_):
   # SETUP
   # Make the network and optimiser.
   network_parameters = load_model()
-  opt = optax.adam(1e-3)
+  opt = optax.adam(1e-5)
   opt_state = opt.init(network_parameters)
   # Colorama for code coloring
   colorama.init()
