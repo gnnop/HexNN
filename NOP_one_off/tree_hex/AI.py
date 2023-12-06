@@ -3,6 +3,8 @@ import jax
 import jax.numpy as jnp
 import optax
 
+
+
 def net_fn(batch):
   x = batch.astype(jnp.float32)
   h1 = hk.Sequential([

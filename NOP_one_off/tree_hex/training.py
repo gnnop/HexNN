@@ -16,6 +16,28 @@ from multiprocessing.dummy import Pool as ThreadPool
 from game_description import *
 from AI import *
 
+"""
+
+Now, I take the time to construct trees. Instead of the network being trained on its own evaluations,
+instead we sample thousands of games to deteremine win percentages and train the networkdirectly on that. 
+Eventually, with each epoch, we use the updated network on the tree to generate more choices.
+
+
+In a sense, this should give a better idea for the net of everything.
+
+Also, I should pre-zero the network maybe, since near zero predictions are expected.
+
+Since the state in theory contains the entire game, I can also store collisions in a hash
+
+"""
+
+
+#For evaluating nodes
+class Trainer():
+
+  def __init__(self) -> None:
+    pass
+
 
 
 def main(_):
@@ -28,7 +50,7 @@ def main(_):
     aiTwoScore = 0
     print("evaluating AIs")
     for pp in range(10):
-      hexgame = tictactoe()
+      hexgame = hexGame()
       if pp % 2 == 0:
         firstPlayer = aiOne
         negOnePlayer = aiTwo
@@ -37,7 +59,7 @@ def main(_):
         negOnePlayer = aiOne
       
       #Do the first turn so results aren't even
-      hexgame.takeTurn(random.randrange(0, 9))
+      hexgame.takeLinTurn(random.randrange(0, hexgame.getPlayableArea()))
       
 
       while hexgame.checkGameWin() == -2:
@@ -46,7 +68,7 @@ def main(_):
           hexgame.displayGame()
         boards = []
         gamestates = []
-        for i in range(9):
+        for i in range(hexgame.getPlayableArea()):
           if hexgame.board[i] == 0:
             gamestates.append(i)
             hexgame.board[i] = hexgame.getTurn()
@@ -60,7 +82,7 @@ def main(_):
           preds = net.apply(negOnePlayer, jnp.array(boards))
           val = jnp.min(preds)
         
-        hexgame.takeTurn(gamestates[jnp.where(preds == val)[0][0]])
+        hexgame.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
       
       if pp == 0:
         print("This player won, blue went first: ", hexgame.checkGameWin())
@@ -90,7 +112,7 @@ def main(_):
       alphaBetaBoards = []
       gameStates = []
 
-      for i in range(9):
+      for i in range(hexgame.getPlayableArea()):
         if hexgame.board[i] == 0:
           hexgame.board[i] = hexgame.getTurn()#in place modification without changing state
           gameStates.append(i)
@@ -107,7 +129,7 @@ def main(_):
         boards.append(copy.deepcopy(hexgame.board))
         labels.append(jnp.min(ls))
       #Use some mix of exploration and the network
-      if random.random() < 0.1 and turns < 20:
+      if random.random() < 0.2 and turns < 15:
         num = 0
         for i in hexgame.board:
           if i == 0:
@@ -118,11 +140,11 @@ def main(_):
         for i in hexgame.board:
           if i == 0:
             if pos == num:
-              hexgame.takeTurn(absPos)
+              hexgame.takeLinTurn(absPos)
             num+=1
           absPos+=1
       else:
-        hexgame.takeTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+        hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
     
     boards.append(copy.deepcopy(hexgame.board))
     labels.append(hexgame.checkGameWin())
@@ -157,7 +179,7 @@ def main(_):
     print('loaded previous AI')
   except:
     print('previous AI not found. New init being used')
-    params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().board]))
+    params = net.init(jax.random.PRNGKey(42), jnp.array([hexGame().board]))
 
   print(params)
   opt_state = opt.init(params)
@@ -178,7 +200,7 @@ def main(_):
       # Do SGD on a batch of training examples.
 
       pool = ThreadPool(20)
-      master_list = pool.map(lambda a: generateGameBatch(tictactoe(), params), range(50))
+      master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
 
       flat_list_data = (np.array([item for sublist in master_list for item in sublist[0]]))
       flat_list_label = (np.transpose(np.array([[item for sublist in master_list for item in sublist[1]]])))
