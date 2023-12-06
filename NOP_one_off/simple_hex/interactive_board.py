@@ -3,6 +3,9 @@ from AI import *
 from tkinter import *
 from tkinter import messagebox
 import copy
+import pickle
+
+np.set_printoptions(formatter={'float': lambda x: "{0:0.2f}".format(x)})
 
 class HexaCanvas(Canvas):
 	"""A canvas that provides a create-hexagone method"""
@@ -146,6 +149,13 @@ if __name__ == "__main__":
 	grid = HexaCanvas(tk, scale = 50, grid_width=hexDims, grid_height=hexDims)
 	grid.pack(anchor=S)
 
+	net = hk.without_apply_rng(hk.transform(net_fn))
+	try:
+		params = pickle.load(open('partial_training.params', 'rb'))
+		print('loaded AI')
+	except:
+		print('no AI, abort!')
+
 	def displayGame(i, j):
 		global game
 		pos = game.board[game.hexToLine(i, j)]
@@ -201,7 +211,7 @@ if __name__ == "__main__":
 		game.displayGame()
 
 
-		game.takeTurn(gamestates[jnp.where(preds == val)[0][0]])
+		game.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
 		grid.drawGame(displayGame)
 
 	ai = Button(tk, text="AI", command = makeAImove)

@@ -16,6 +16,28 @@ from multiprocessing.dummy import Pool as ThreadPool
 from game_description import *
 from AI import *
 
+"""
+
+Now, I take the time to construct trees. Instead of the network being trained on its own evaluations,
+instead we sample thousands of games to deteremine win percentages and train the networkdirectly on that. 
+Eventually, with each epoch, we use the updated network on the tree to generate more choices.
+
+
+In a sense, this should give a better idea for the net of everything.
+
+Also, I should pre-zero the network maybe, since near zero predictions are expected.
+
+Since the state in theory contains the entire game, I can also store collisions in a hash
+
+"""
+
+
+#For evaluating nodes
+class Trainer():
+
+  def __init__(self) -> None:
+    pass
+
 
 
 def main(_):
@@ -107,7 +129,7 @@ def main(_):
         boards.append(copy.deepcopy(hexgame.board))
         labels.append(jnp.min(ls))
       #Use some mix of exploration and the network
-      if random.random() < 0.1 and turns < 20:
+      if random.random() < 0.2 and turns < 15:
         num = 0
         for i in hexgame.board:
           if i == 0:

@@ -16,7 +16,50 @@ from multiprocessing.dummy import Pool as ThreadPool
 from game_description import *
 from AI import *
 
+"""
 
+Article for when I get back to this:
+
+Currently, we are sampling the entire game uniformly
+
+I know that openAI used some sort of Monte Carlo for figuring the whole thing out.
+
+however, it seems to me that it might be better to evaluate the gradients.
+
+Things with large gradient are going to need more training, so we take the large
+gradients and feed things local to the network back into them.
+
+This could even be done via simple repition...
+
+
+Of course, the most general problem is that the network isn't going to be learning
+as fast as possible.
+
+
+Currently, if we can speed hex to a reasonable rate, I want to target the tumbleweed
+community first, under the guise of needing money for GPUs which we will.
+
+
+The bar to clear is needing the AI to be better than me.
+
+
+
+New approach: we roll out the game tree and store moves with hashes.
+
+
+We manually backpropogate the algorithm through the tree and record nodes until we
+reach feedback.
+
+What happens then is the neural network is trained on nodes it doesn't do well
+on. These nodes are kept and re-evaluated. 
+
+During the initial phase, I expect a lot of the network to go to 0
+
+We need 
+
+
+
+"""
 
 def main(_):
   # Make the network and optimiser.
@@ -28,7 +71,7 @@ def main(_):
     aiTwoScore = 0
     print("evaluating AIs")
     for pp in range(10):
-      hexgame = tictactoe()
+      hexgame = hexGame()
       if pp % 2 == 0:
         firstPlayer = aiOne
         negOnePlayer = aiTwo
@@ -37,7 +80,7 @@ def main(_):
         negOnePlayer = aiOne
       
       #Do the first turn so results aren't even
-      hexgame.takeTurn(random.randrange(0, 9))
+      hexgame.takeLinTurn(random.randrange(0, hexgame.getPlayableArea()))
       
 
       while hexgame.checkGameWin() == -2:
@@ -46,7 +89,7 @@ def main(_):
           hexgame.displayGame()
         boards = []
         gamestates = []
-        for i in range(9):
+        for i in range(hexgame.getPlayableArea()):
           if hexgame.board[i] == 0:
             gamestates.append(i)
             hexgame.board[i] = hexgame.getTurn()
@@ -60,7 +103,7 @@ def main(_):
           preds = net.apply(negOnePlayer, jnp.array(boards))
           val = jnp.min(preds)
         
-        hexgame.takeTurn(gamestates[jnp.where(preds == val)[0][0]])
+        hexgame.takeLinTurn(gamestates[jnp.where(preds == val)[0][0]])
       
       if pp == 0:
         print("This player won, blue went first: ", hexgame.checkGameWin())
@@ -90,7 +133,7 @@ def main(_):
       alphaBetaBoards = []
       gameStates = []
 
-      for i in range(9):
+      for i in range(hexgame.getPlayableArea()):
         if hexgame.board[i] == 0:
           hexgame.board[i] = hexgame.getTurn()#in place modification without changing state
           gameStates.append(i)
@@ -107,7 +150,7 @@ def main(_):
         boards.append(copy.deepcopy(hexgame.board))
         labels.append(jnp.min(ls))
       #Use some mix of exploration and the network
-      if random.random() < 0.1 and turns < 20:
+      if random.random() < 0.3 and turns < 15:
         num = 0
         for i in hexgame.board:
           if i == 0:
@@ -118,11 +161,11 @@ def main(_):
         for i in hexgame.board:
           if i == 0:
             if pos == num:
-              hexgame.takeTurn(absPos)
+              hexgame.takeLinTurn(absPos)
             num+=1
           absPos+=1
       else:
-        hexgame.takeTurn(gameStates[np.where(ls == labels[-1])[0][0]])
+        hexgame.takeLinTurn(gameStates[np.where(ls == labels[-1])[0][0]])
     
     boards.append(copy.deepcopy(hexgame.board))
     labels.append(hexgame.checkGameWin())
@@ -157,7 +200,7 @@ def main(_):
     print('loaded previous AI')
   except:
     print('previous AI not found. New init being used')
-    params = net.init(jax.random.PRNGKey(42), jnp.array([tictactoe().board]))
+    params = net.init(jax.random.PRNGKey(42), jnp.array([hexGame().board]))
 
   print(params)
   opt_state = opt.init(params)
@@ -178,7 +221,7 @@ def main(_):
       # Do SGD on a batch of training examples.
 
       pool = ThreadPool(20)
-      master_list = pool.map(lambda a: generateGameBatch(tictactoe(), params), range(50))
+      master_list = pool.map(lambda a: generateGameBatch(hexGame(), params), range(20))
 
       flat_list_data = (np.array([item for sublist in master_list for item in sublist[0]]))
       flat_list_label = (np.transpose(np.array([[item for sublist in master_list for item in sublist[1]]])))
