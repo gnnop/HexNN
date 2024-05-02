@@ -28,6 +28,13 @@ class GameReward:
 class Game(ABC):
 
     @abstractmethod
+    def initial_state(self) -> GameState:
+        '''
+        Creates a new game. That might look like an empty TicTacToe or Go board.
+        '''
+        pass
+
+    @abstractmethod
     def take_turn(self, game_state: GameState, game_action: GameAction) -> tuple[GameState, GameReward]:
         '''
         Alters the game_state to reflect the changes done by game_action and evaluates a reward.

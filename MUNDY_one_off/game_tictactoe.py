@@ -6,6 +6,9 @@ class TicTacToe(Game):
         # Initialize with an empty game_state
         self.initial_state = GameState([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
 
+    def initial_state(self) -> GameState:
+        return self.initial_state
+
     def take_turn(self, game_state: GameState, game_action: GameAction) -> tuple[GameState, GameReward]:
         row, col, current_player = game_action.at[0].get(), game_action.at[1].get(), game_action.at[2].get()
         new_board = game_state.at[row, col].set(current_player)

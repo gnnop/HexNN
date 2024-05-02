@@ -3,16 +3,12 @@ import jax.scipy.signal as signal
 import colorama
 from game import *
 
-
-# Game configuration constants
-BOARD_SIZE = 5
-
 class Hex(Game):
 
-    def __init__(self, board_size=BOARD_SIZE):
+    def __init__(self, board_size):
         self.board_size = board_size
 
-    def new_game_state(self) -> GameState:
+    def initial_state(self) -> GameState:
         return jnp.ones([2, self.board_size, self.board_size], dtype=jnp.uint8)
 
     def place_piece(self, game_state: GameState, x: int, y: int, color: int) -> GameState:
