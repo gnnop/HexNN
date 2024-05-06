@@ -1,29 +1,12 @@
 import jax.numpy as jnp
 from abc import ABC, abstractmethod
+import chex
 
-class GameState:
-    def __init__(self, data):
-        self._data = jnp.array(data)
-    def __getattr__(self, name):
-        return getattr(self._data, name)
-    def __getitem__(self, index):
-        return self._data[index]
-
-class GameAction:
-    def __init__(self, data):
-        self._data = jnp.array(data)
-    def __getattr__(self, name):
-        return getattr(self._data, name)
-    def __getitem__(self, index):
-        return self._data[index]
-
-class GameReward:
-    def __init__(self, data):
-        self._data = jnp.array(data)
-    def __getattr__(self, name):
-        return getattr(self._data, name)
-    def __getitem__(self, index):
-        return self._data[index]
+GameState = chex.Array
+GameAction = chex.Array
+GameReward = chex.Array
+GameDone = jnp.bool_
+GameCondition = jnp.bool_
 
 class Game(ABC):
 
@@ -43,7 +26,7 @@ class Game(ABC):
         pass
 
     @abstractmethod
-    def end_condition_met(self, game_state: GameState) -> bool:
+    def end_condition_met(self, game_state: GameState) -> GameDone:
         '''
         True if the game is terminated for some reason, 
         like if there's a checkmate in chess
@@ -51,8 +34,29 @@ class Game(ABC):
         pass
 
     @abstractmethod
-    def is_valid_action(self, game_state: GameState, game_action: GameAction) -> bool:
+    def is_valid_action(self, game_state: GameState, game_action: GameAction) -> GameCondition:
         '''
         True if the action can be taken
+        '''
+        pass
+
+
+class ZeroSumTwoPlayerTiledGame(Game):
+    '''
+    A two-player game where each player puts a piece on a tile until some win condition is satisfied.
+    The first element in the GameAction must be the player ID, 0 for player 1 and 1 for player 2
+    The second and third elements in the GameAction are the row and column of the piece to place
+    '''
+    @abstractmethod
+    def get_board_shape(self) -> tuple[int, int]:
+        '''
+        The dimensions of the board
+        '''
+        pass
+    @abstractmethod
+    def get_valid_action_mask(self, game_state: GameState) -> chex.Array:
+        '''
+        A mask of the remaining valid positions on the board
+        Flattened to 1D
         '''
         pass
