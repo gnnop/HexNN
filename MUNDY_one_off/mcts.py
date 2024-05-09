@@ -45,15 +45,21 @@ def environment_reset(_):
         state=game.initial_state(),
         player=jnp.int8(1),
         done=jnp.bool_(False),
-        reward=jnp.int16(0)
+        reward=jnp.int8(0)
     )
 
-def environment_step(environment: Environment, action: GameAction) -> tuple[Environment, GameReward, GameDone]:
-    c_player = action.at[0].get()
+def environment_step(environment: Environment, action_id: GameAction) -> tuple[Environment, GameReward, GameDone]:
+
+    player = (1-environment.player) >> 1 # Map from 1,-1 players to 0,1 players 
+    y, x = jnp.divmod(action_id, game.get_board_shape()[1])
+    action = jnp.zeros(3, dtype=jnp.int8)
+    action = action.at[0].set(player)
+    action = action.at[1].set(y)
+    action = action.at[2].set(x)
+
     c_valid = game.is_valid_action(environment.state, action)
-    g_action = action.at[0].set((1-action.at[0].get()) >> 1) # Map from 1,-1 players to 0,1 players 
-    c_state, c_reward = game.take_turn(environment.state, g_action)
-    c_done = game.end_condition_met(c_state)
+    c_state, c_reward = game.take_turn(environment.state, action)
+    can_continue = (~environment.done) & c_valid
 
     # The reward:
     # * 0 if the game is already over. This is to ignore nodes below terminal nodes.
@@ -67,29 +73,22 @@ def environment_step(environment: Environment, action: GameAction) -> tuple[Envi
             c_reward,  # Fallback to the game reward if valid move
             -1         # Override game reward to penalize invalid moves
         )
-    ).astype(jnp.int16)
+    ).astype(jnp.int8)
 
-    out_done = environment.done | (out_reward != 0) | (~ c_valid) | c_done 
+    out_done = (~can_continue) | (c_reward != 0)
     # out_done = c_done | environment.done
 
+    
+
     out_environment = Environment(
-         state = jnp.where(out_done, environment.state, c_state),
-        player = jnp.where(out_done, c_player, -c_player),
+         state = jnp.where(can_continue, c_state, environment.state),
+        player = jnp.where(~out_done & can_continue, -environment.player, environment.player),
           done = out_done,
         reward = out_reward
     )
 
     return out_environment, out_reward, out_done
 # end environment_step
-
-def expand_action(environment: Environment, action_id):
-    player = environment.player
-    y, x = jnp.divmod(action_id, game.get_board_shape()[1])
-    action = jnp.zeros(3, dtype=jnp.int8)
-    action = action.at[0].set(player)
-    action = action.at[1].set(y)
-    action = action.at[2].set(x)
-    return action
 
 def valid_action_mask(environment: Environment) -> chex.Array:
     '''
@@ -99,28 +98,48 @@ def valid_action_mask(environment: Environment) -> chex.Array:
     c_mask = game.get_valid_action_mask(environment.state).astype(jnp.int8)
     return jnp.multiply(c_mask, 1 - environment.done).astype(jnp.int8)
 
+def action_result(environment: Environment, action_id: int):
+    """
+    Computes the new game state and reward for a given action.
+    """
+    new_state, reward = game.take_turn(environment.state, action_id)
+    return reward
+
 def winning_action_mask(environment: Environment) -> chex.Array:
+    def expand_action(environment: Environment, action_id):
+        player = environment.player
+        y, x = jnp.divmod(action_id, game.get_board_shape()[1])
+        action = jnp.zeros(3, dtype=jnp.int8)
+        action = action.at[0].set(player)
+        action = action.at[1].set(y)
+        action = action.at[2].set(x)
+        return action
+    # Get all valid actions mask
     valid_mask = valid_action_mask(environment)
-    num_actions = valid_mask.shape[0]
-    all_actions = jax.lax.broadcast_in_dim(
-        jnp.arange(num_actions),
-        shape=(num_actions,),
-        broadcast_dimensions=(0,)
-    )
-    expanded_actions = jax.vmap(lambda action_id: expand_action(environment, action_id))(all_actions)
-    new_states, rewards = jax.vmap(game.take_turn, in_axes=(None, 0))(environment.state, expanded_actions)
-    win_conditions = rewards > 0
-    winning_action_mask = valid_mask & win_conditions
-    return winning_action_mask
-
-
+    # Create an array of action indices
+    action_ids = jnp.arange(valid_mask.size)
+    # Expand actions from these indices
+    actions = jax.vmap(expand_action, in_axes=(None, 0))(environment, action_ids)
+    # Convert player IDs from 1, -1 to 0, 1
+    player_ids = (1 - actions[:, 0]) >> 1
+    actions = actions.at[:, 0].set(player_ids)
+    # Apply actions to the game state and get new states and rewards
+    new_states, rewards = jax.vmap(lambda st, act: game.take_turn(st, act), in_axes=(None, 0))(environment.state, actions)
+    # Mask rewards where action was valid and the reward indicates a win
+    winning_mask = (rewards > 0) & valid_mask
+    return winning_mask
 
 def policy_function(environment: Environment) -> chex.Array:
-    antagonist_environment = environment
-    antagonist_environment.player = antagonist_environment.player*-1
-    return valid_action_mask(environment=environment).astype(jnp.float32) * 50 \
-        + winning_action_mask(environment=antagonist_environment).astype(jnp.float32) * 200 \
-        + winning_action_mask(environment=environment).astype(jnp.float32) * 400
+    antagonist_environment = Environment(
+         state = environment.state,
+        player = -environment.player,
+          done = environment.done,
+        reward = environment.reward
+    )
+    return valid_action_mask(environment=environment).astype(jnp.float32) * 100 \
+        + winning_action_mask(environment=antagonist_environment).astype(jnp.float32) * 400 \
+        + winning_action_mask(environment=environment).astype(jnp.float32) * 900
+
 
 def rollout(environment: Environment, rng_key: chex.PRNGKey) -> GameReward:
     '''
@@ -133,8 +152,7 @@ def rollout(environment: Environment, rng_key: chex.PRNGKey) -> GameReward:
         environment, key = a
         key, subkey = jax.random.split(key)
         action_id = jax.random.categorical(subkey, policy_function(environment)).astype(jnp.int8)
-        action = expand_action(environment, action_id)
-        environment, reward, done = environment_step(environment, action)
+        environment, reward, done = environment_step(environment, action_id)
         return environment, key
     leaf, key = jax.lax.while_loop(cond, step, (environment, rng_key))
     # The leaf reward is from the perspective of the last player.
@@ -142,10 +160,7 @@ def rollout(environment: Environment, rng_key: chex.PRNGKey) -> GameReward:
     return leaf.reward * leaf.player * environment.player
 
 def value_function(environment: Environment, rng_key: chex.PRNGKey) -> chex.Array:
-    return rollout(environment, rng_key).astype(jnp.int16)
-
-
-
+    return rollout(environment, rng_key).astype(jnp.float32)
 
 def root_fn(environment: Environment, rng_key: chex.PRNGKey) -> mctx.RootFnOutput:
     return mctx.RootFnOutput(
@@ -159,27 +174,24 @@ def recurrent_fn(params, rng_key, action_id, embedding):
     # Extract the environment from the embedding.
     environment = embedding
 
-    # Get the action from a single value and the environment player
-    action_id = jax.random.categorical(rng_key, policy_function(environment)).astype(jnp.int8)
-    action = expand_action(environment, action_id)
-
     # Play the action.
-    environment, reward, done = environment_step(environment, action)
+    environment, reward, done = environment_step(environment, action_id)
 
     # Create the new MCTS node.
     recurrent_fn_output = mctx.RecurrentFnOutput(
         # reward for playing `action`
         reward=reward,
         # discount explained in the next section
-        discount=jnp.where(done, 0, -1).astype(jnp.float16),
+        discount=jnp.where(done, 0, -1).astype(jnp.float32),
         # prior for the new state
         prior_logits=policy_function(environment),
         # value for the new state
-        value=jnp.where(done, 0, value_function(environment, rng_key)).astype(jnp.float16),
+        value=jnp.where(done, 0, value_function(environment, rng_key)).astype(jnp.float32),
     )
 
     # Return the new node and the new environment.
     return recurrent_fn_output, environment
+
 
 @functools.partial(jax.jit, static_argnums=(2,))
 def run_mcts(rng_key: chex.PRNGKey, environment: Environment, num_simulations: int) -> chex.Array:
@@ -222,9 +234,9 @@ if __name__ == "__main__":
     # set to False to enable human input
     player_1_ai = True
     player_2_ai = True
-    ai_level = 50000
+    ai_level = 10000
 
-    key = jax.random.PRNGKey(314)
+    key = jax.random.PRNGKey(43)
     game.print_game_state(environment.state)
     while True:
         if player_1_ai:
@@ -233,17 +245,14 @@ if __name__ == "__main__":
             action_id = action_weights.argmax().item()
         else:
             action_id = jnp.array(int(input()), dtype=jnp.int8)
-        action = expand_action(environment, action_id)
 
-        environment, reward, done = environment_step(environment, action)
+        environment, reward, done = environment_step(environment, action_id)
         game.print_game_state(environment.state)
-        if done: break
         # Temporary: debug
-        print(environment)
-        print(game.get_valid_action_mask(environment.state))
         if(game.check_win(environment.state, 0)):
             print("Win condition met for player 1")
         #end debug
+        if done: break
 
 
         if player_2_ai:
@@ -252,17 +261,14 @@ if __name__ == "__main__":
             action_id = action_weights.argmax().item()
         else:
             action_id = jnp.array(int(input()), dtype=jnp.int8)
-        action = expand_action(environment, action_id)
 
-        environment, reward, done = environment_step(environment, action)
+        environment, reward, done = environment_step(environment, action_id)
         game.print_game_state(environment.state)
-        if done: break
         # Temporary: debug
-        print(environment)
-        print(game.get_valid_action_mask(environment.state))
         if(game.check_win(environment.state, 1)):
             print("Win condition met for player 2")
         #end debug
+        if done: break
 
     players = {
         1: "Blue",

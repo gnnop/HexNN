@@ -19,7 +19,7 @@ class Hex(ZeroSumTwoPlayerTiledGame):
         x = game_action.at[2].get()
         color = game_action.at[0].get()
         new_state = self.place_piece(game_state, x, y, color)
-        reward = self.end_condition_met(new_state)  # TODO inefficient
+        reward = jnp.where(self.check_win(new_state, color), 1, 0)
         return new_state, reward
 
     def check_free(self, game_state: GameState, x: int, y: int):
