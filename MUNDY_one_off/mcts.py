@@ -6,6 +6,8 @@ import functools
 from game_tictactoe import *
 from game_hex import *
 
+import jax.profiler
+jax.profiler.start_server(9999)
 
 '''
 A 2xnxn array where n is the board size.
@@ -30,7 +32,7 @@ visualized like this:
 
 Player = chex.Array
 
-game = Hex(11)
+game = Hex(5)
 
 @chex.dataclass
 class Environment:
@@ -136,9 +138,16 @@ def policy_function(environment: Environment) -> chex.Array:
           done = environment.done,
         reward = environment.reward
     )
+
+    # return valid_action_mask(environment=environment).astype(jnp.float32) * 100 \
+    #     + environment.reward.astype(jnp.float32) * -900
+
     return valid_action_mask(environment=environment).astype(jnp.float32) * 100 \
-        + winning_action_mask(environment=antagonist_environment).astype(jnp.float32) * 400 \
         + winning_action_mask(environment=environment).astype(jnp.float32) * 900
+
+    # return valid_action_mask(environment=environment).astype(jnp.float32) * 100 \
+    #     + winning_action_mask(environment=antagonist_environment).astype(jnp.float32) * 400 \
+    #     + winning_action_mask(environment=environment).astype(jnp.float32) * 900
 
 
 def rollout(environment: Environment, rng_key: chex.PRNGKey) -> GameReward:
@@ -233,8 +242,8 @@ if __name__ == "__main__":
 
     # set to False to enable human input
     player_1_ai = True
-    player_2_ai = True
-    ai_level = 10000
+    player_2_ai = False
+    ai_level = 25000
 
     key = jax.random.PRNGKey(43)
     game.print_game_state(environment.state)
